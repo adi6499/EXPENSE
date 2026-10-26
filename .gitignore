@@ -1,0 +1,12 @@
+.gradle/
+build/
+app/build/
+local.properties
+keystore.properties
+signing/
+*.apk
+*.aab
+node_modules/
+.idea/
+*.iml
+build.log

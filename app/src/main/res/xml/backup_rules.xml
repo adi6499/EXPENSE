@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto Backup: copies the user's data to their Google account so a new phone restores it -->
+<full-backup-content>
+    <include domain="file" path="expenses.json" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

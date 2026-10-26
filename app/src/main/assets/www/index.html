@@ -1,0 +1,101 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light dark">
+  <title>Expenses</title>
+  <meta name="description" content="A simple, private expense tracker. No account, works offline — your data stays on your device.">
+  <meta name="theme-color" id="theme-color" content="#f2f2f7">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Expenses">
+  <meta property="og:title" content="Expenses">
+  <meta property="og:description" content="A simple, private expense tracker. Your data stays on your device.">
+  <meta property="og:image" content="icons/icon-512.png">
+  <link rel="stylesheet" href="vendor/phosphor/regular/style.css">
+  <link rel="stylesheet" href="vendor/phosphor/fill/style.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Pick light/dark before anything paints, so there is no white flash at night
+    (function () {
+      try {
+        var data = window.Native ? window.Native.loadData() : localStorage.getItem('expenses-app-data');
+        var mode = (data && JSON.parse(data).settings || {}).appearance || 'auto';
+        var systemDark = window.Native ? window.Native.isSystemDark() : matchMedia('(prefers-color-scheme: dark)').matches;
+        if (mode === 'dark' || (mode === 'auto' && systemDark)) document.documentElement.dataset.theme = 'dark';
+      } catch (e) { /* the app script sets it properly a moment later */ }
+    })();
+  </script>
+</head>
+<body>
+  <div id="app">
+    <main id="tabs">
+      <section class="page tab-page active" data-tab="home">
+        <header class="navbar">
+          <div class="nav-title">Summary</div>
+        </header>
+        <div class="scroller">
+          <div class="large-title-wrap">
+            <div class="eyebrow" id="home-date"></div>
+            <h1 class="large-title">Summary</h1>
+          </div>
+          <div class="content" id="home"></div>
+          <div class="bottom-space"></div>
+        </div>
+      </section>
+
+      <section class="page tab-page" data-tab="activity">
+        <header class="navbar">
+          <div class="nav-title">Transactions</div>
+          <div class="nav-right"><button class="icon-btn" id="activity-filter" aria-label="Filter"></button></div>
+        </header>
+        <div class="scroller">
+          <div class="large-title-wrap"><h1 class="large-title">Transactions</h1></div>
+          <div class="content" id="activity"></div>
+          <div class="bottom-space"></div>
+        </div>
+      </section>
+
+      <section class="page tab-page" data-tab="insights">
+        <header class="navbar">
+          <div class="nav-title">Insights</div>
+        </header>
+        <div class="scroller">
+          <div class="large-title-wrap"><h1 class="large-title">Insights</h1></div>
+          <div class="content" id="insights"></div>
+          <div class="bottom-space"></div>
+        </div>
+      </section>
+
+      <section class="page tab-page" data-tab="settings">
+        <header class="navbar">
+          <div class="nav-title">Settings</div>
+        </header>
+        <div class="scroller">
+          <div class="large-title-wrap"><h1 class="large-title">Settings</h1></div>
+          <div class="content" id="settings"></div>
+          <div class="bottom-space"></div>
+        </div>
+      </section>
+
+      <nav class="tabbar" aria-label="Main">
+        <button class="tab active" data-tab="home"><i class="ph-fill ph-house"></i><span>Summary</span></button>
+        <button class="tab" data-tab="activity"><i class="ph ph-list-bullets"></i><span>Transactions</span></button>
+        <button class="tab-add" id="add-btn" aria-label="Add transaction"><span class="add-circle"></span></button>
+        <button class="tab" data-tab="insights"><i class="ph ph-chart-pie-slice"></i><span>Insights</span></button>
+        <button class="tab" data-tab="settings"><i class="ph ph-gear-six"></i><span>Settings</span></button>
+      </nav>
+    </main>
+    <div id="stack"></div>
+  </div>
+  <!-- Sheets, alerts and action sheets live outside #app so they also cover the welcome screens -->
+  <div id="overlays"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
