@@ -90,7 +90,7 @@ ${showInstall ? `
         <div class="list">
           <button class="row tap destructive center" data-go="erase"><div class="row-main"><span class="row-title">Erase All Data</span></div></button>
         </div>
-        <div class="section-footer" style="text-align:center">${app ? `Expenses ${esc(native.appVersion())}` : 'Expenses for the web'}</div>
+        <div class="section-footer" style="text-align:center" data-go="about">${app ? `Expenses ${esc(native.appVersion())}` : 'Expenses for the web'}</div>
       </div>`;
   }
 
@@ -112,6 +112,7 @@ ${showInstall ? `
       restore: restore,
       import: importCSV,
       erase: eraseAll,
+      about: countAboutTap,
     };
     if (actions[go]) actions[go]();
   });
@@ -332,6 +333,54 @@ function showImportPreview(rows, forcedOrder) {
     if (name !== 'order') return;
     handle.close('reload');
     setTimeout(() => showImportPreview(rows, value), 380);
+  });
+}
+
+// Hidden helper: tap the version line 5 times to see the numbers needed to diagnose a layout
+// problem on someone's phone (screen size, safe areas, viewport units).
+let aboutTaps = 0;
+let aboutTimer = null;
+
+function countAboutTap() {
+  aboutTaps++;
+  clearTimeout(aboutTimer);
+  aboutTimer = setTimeout(() => { aboutTaps = 0; }, 1500);
+  if (aboutTaps >= 5) {
+    aboutTaps = 0;
+    showScreenDetails();
+  }
+}
+
+function showScreenDetails() {
+  const probe = css => {
+    const el = document.createElement('div');
+    el.style.cssText = `position:absolute;visibility:hidden;left:0;top:0;width:1px;${css}`;
+    document.body.appendChild(el);
+    const style = getComputedStyle(el);
+    const result = {
+      height: Math.round(el.getBoundingClientRect().height),
+      top: parseFloat(style.paddingTop),
+      bottom: parseFloat(style.paddingBottom),
+    };
+    el.remove();
+    return result;
+  };
+  const safe = probe('padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)');
+  const heightOf = selector => Math.round(document.querySelector(selector).getBoundingClientRect().height);
+  const unit = name => probe(`height:100${name}`).height;
+  const versions = (navigator.userAgent.match(/OS [\d_]+|Version\/[\d.]+|Chrome\/[\d.]+|Android [\d.]+/g) || []).join(' ');
+  alert({
+    title: 'Screen details',
+    message: [
+      `Screen ${screen.width} × ${screen.height}`,
+      `Window ${window.innerWidth} × ${window.innerHeight}`,
+      `Page ${document.documentElement.clientHeight} · root ${heightOf('html')} · app ${heightOf('#app')}`,
+      `vh ${unit('vh')} · lvh ${unit('lvh')} · dvh ${unit('dvh')} · svh ${unit('svh')}`,
+      `Visible ${window.visualViewport ? Math.round(window.visualViewport.height) : '—'}`,
+      `Safe area top ${safe.top} · bottom ${safe.bottom}`,
+      `Home-screen app: ${window.matchMedia('(display-mode: standalone)').matches ? 'yes' : 'no'} · ${native.isApp ? 'Android app' : 'website'}`,
+      versions,
+    ].join('\n'),
   });
 }
 

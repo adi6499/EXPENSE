@@ -117,6 +117,21 @@ body {
   background: var(--bg);
 }
 
+/* iPhone home-screen app on iOS 26 (WebKit bug 301108): with the see-through status bar, iOS lays
+   the page out shorter than the screen by the status bar's height, leaving a strip it never draws
+   under the tab bar. Making the root that much taller makes iOS use the whole screen. When iOS gets
+   it right, this works out to exactly the screen height and changes nothing. */
+@media (display-mode: standalone) {
+  html {
+    height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px)));
+  }
+
+  /* The app frame follows that page height instead of iOS's (possibly short) screen measurement */
+  body {
+    position: relative;
+  }
+}
+
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 17px;
@@ -166,6 +181,13 @@ textarea {
 #app {
   position: fixed;
   inset: 0;
+}
+
+/* iPhone home-screen app: follow the taller page from the rule near the top (WebKit bug 301108) */
+@media (display-mode: standalone) {
+  #app {
+    position: absolute;
+  }
 }
 
 #tabs,
@@ -1920,6 +1942,7 @@ body.behind-sheet #tabs {
 }
 
 .alert-text p {
+  white-space: pre-line;
   font-size: 13px;
   margin-top: 4px;
   line-height: 1.35;
@@ -2049,7 +2072,7 @@ body.behind-sheet #tabs {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--safe-bottom) + var(--tabbar-h) + 14px - var(--ios-gap, 0px));
+  bottom: calc(var(--safe-bottom) + var(--tabbar-h) + 14px);
   z-index: 80;
   display: flex;
   align-items: center;
@@ -2260,17 +2283,6 @@ body.behind-sheet #tabs {
   .amount-display.size-s { font-size: 32px; }
   .editor-center { gap: 8px; min-height: 0; padding: 4px 16px; }
   .cat-strip { padding-bottom: 6px; }
-}
-
-/* iPhone home-screen app: stretch full-screen layers over the strip iOS can leave at the bottom
-   (--ios-gap is measured in app.js, fixIphoneHeight; it is 0 everywhere else) */
-#app,
-.sheet-wrap,
-.action-wrap,
-.alert-wrap,
-.onboard,
-.lock {
-  bottom: calc(0px - var(--ios-gap, 0px));
 }
 
 /* Tablets: bottom tab bar stays, content keeps a comfortable reading width */
