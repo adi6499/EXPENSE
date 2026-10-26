@@ -2049,7 +2049,7 @@ body.behind-sheet #tabs {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--safe-bottom) + var(--tabbar-h) + 14px);
+  bottom: calc(var(--safe-bottom) + var(--tabbar-h) + 14px - var(--ios-gap, 0px));
   z-index: 80;
   display: flex;
   align-items: center;
@@ -2260,6 +2260,17 @@ body.behind-sheet #tabs {
   .amount-display.size-s { font-size: 32px; }
   .editor-center { gap: 8px; min-height: 0; padding: 4px 16px; }
   .cat-strip { padding-bottom: 6px; }
+}
+
+/* iPhone home-screen app: stretch full-screen layers over the strip iOS can leave at the bottom
+   (--ios-gap is measured in app.js, fixIphoneHeight; it is 0 everywhere else) */
+#app,
+.sheet-wrap,
+.action-wrap,
+.alert-wrap,
+.onboard,
+.lock {
+  bottom: calc(0px - var(--ios-gap, 0px));
 }
 
 /* Tablets: bottom tab bar stays, content keeps a comfortable reading width */

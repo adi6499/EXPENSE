@@ -188,6 +188,7 @@ const webInstall = {
 };
 
 function setUpWebsite() {
+  fixIphoneHeight();
   // A reload while a panel was open leaves us on our extra entry: treat it as the base again
   if (history.state && history.state.expenses) history.replaceState(null, '');
   window.addEventListener('popstate', onPopState);
@@ -216,6 +217,23 @@ function setUpWebsite() {
 
   // The launcher shortcut opens ?action=add: tidy the address so a reload doesn't add again
   if (location.search.includes('action=')) history.replaceState(null, '', location.pathname);
+}
+
+/**
+ * iPhone home-screen apps that draw under the status bar are sometimes laid out shorter than the
+ * screen by the status bar's height, leaving a black strip under the tab bar. Measure the strip and
+ * let the CSS stretch the full-screen layers over it (--ios-gap).
+ */
+function fixIphoneHeight() {
+  if (!/iPhone|iPod/.test(navigator.userAgent) || !isStandalone()) return;
+  const update = () => {
+    const portrait = window.innerHeight >= window.innerWidth;
+    const screenHeight = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    const gap = screenHeight - document.documentElement.clientHeight;
+    document.documentElement.style.setProperty('--ios-gap', gap > 0 && gap <= 100 ? `${gap}px` : '0px');
+  };
+  update();
+  window.addEventListener('resize', update);
 }
 
 /** Asks the browser to keep the data even when the device is short of space (best effort). */
