@@ -32,6 +32,7 @@ export function openEditor(existing = null, preset = {}) {
   const handle = openSheet({
     size: 'large',
     className: 'editor-sheet',
+    onDismissRequest: () => cancel(),
     html: `
       <header class="sheet-header" data-drag>
         <button class="nav-btn ed-cancel">Cancel</button>
@@ -139,12 +140,16 @@ export function openEditor(existing = null, preset = {}) {
     if (!editing && s.date > L.todayISO()) toast(`Added for ${L.shortDate(s.date)}`, { iconName: 'calendar-blank' });
   }
 
+  let askingToDiscard = false;
   async function cancel() {
     if (!dirty()) return handle.close('cancel');
+    if (askingToDiscard) return;
+    askingToDiscard = true;
     const choice = await actionSheet({
       actions: [{ text: 'Discard Changes', value: 'discard', style: 'destructive' }],
       cancelText: 'Keep Editing',
     });
+    askingToDiscard = false;
     if (choice === 'discard') handle.close('cancel');
   }
 

@@ -35,6 +35,21 @@ new `.apk` over the old one. Data is kept.
 with the same key; without it, people would have to uninstall (and lose data unless they made a backup)
 to install a new version. These files are not in git on purpose.
 
+## Website version
+
+The same screens also run as a website, so it works on any phone, tablet or computer, with no install needed.
+
+- On a computer it shows a sidebar, panels open as centred dialogs, and you can type amounts on the keyboard
+  (**N** = new transaction, **Enter** = save, **Esc** = close).
+- It can be installed like an app (Settings → Install App, or "Add to Home Screen" on iPhone) and works offline.
+- Data is saved in that browser on that device only. Clearing the browser's data deletes it, so use Back Up now and then.
+  To move to another device, back up there and restore here.
+
+**Publishing (Vercel):** `vercel.json` tells Vercel to serve `app/src/main/assets/www` as it is (no build step) and
+adds security headers. Import this GitHub repo once at vercel.com/new and every push updates the site.
+
+If you edit the small inline script in `index.html`, run `npm test`: it prints the new security fingerprint to put in `vercel.json`.
+
 ## For developers
 
 - Web UI: `app/src/main/assets/www` (plain HTML/CSS/JS modules, no build step)

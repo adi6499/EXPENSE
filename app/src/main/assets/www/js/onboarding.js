@@ -24,7 +24,7 @@ export function showOnboarding(onDone) {
         <h1>Know where your<br><span>money goes.</span></h1>
         <div class="feature" style="--c:var(--orange)">${icon('lightning', true)}<div><strong>Add in two seconds</strong><p>A big number pad, smart categories and notes that remember.</p></div></div>
         <div class="feature" style="--c:var(--blue)">${icon('chart-pie-slice', true)}<div><strong>See it clearly</strong><p>Budgets, monthly trends and where every rupee went.</p></div></div>
-        <div class="feature" style="--c:var(--green)">${icon('lock-simple', true)}<div><strong>Private by design</strong><p>Everything stays on your phone. No account, no sign-up, works offline.</p></div></div>
+        <div class="feature" style="--c:var(--green)">${icon('lock-simple', true)}<div><strong>Private by design</strong><p>Everything stays on your device. No account, no sign-up, works offline.</p></div></div>
       </div>
       <div class="onboard-actions">
         <button class="btn" data-next>Continue</button>

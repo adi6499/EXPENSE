@@ -24,18 +24,27 @@ function switchRow({ id, iconName, color, title, checked, disabled = false }) {
     <span class="switch"><input type="checkbox" data-switch="${id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span></span></span></div></label>`;
 }
 
-export function createSettings(root, { applyTheme }) {
+export function createSettings(root, { applyTheme, webInstall }) {
   function render() {
     const st = store.state;
     const s = st.settings;
     const currency = L.currencyInfo(s.currency);
     const canLock = native.canLock();
+    const app = native.isApp;
+    const showInstall = !app && webInstall && webInstall.canShow();
     root.innerHTML = `
       <div class="card banner" style="margin-top:4px">
         <span class="app-icon" style="width:60px;height:60px;border-radius:14px;margin:0;box-shadow:none">${appGlyph()}</span>
-        <div class="banner-text"><strong>Expenses</strong>${st.transactions.length} transaction${st.transactions.length === 1 ? '' : 's'} · saved only on this phone</div>
+        <div class="banner-text"><strong>Expenses</strong>${st.transactions.length} transaction${st.transactions.length === 1 ? '' : 's'} · saved only on this ${app ? 'phone' : 'device, in this browser'}</div>
       </div>
-
+${showInstall ? `
+      <div class="section">
+        <div class="list">
+          ${row({ id: 'install', iconName: 'device-mobile', color: 'blue', title: 'Install App' })}
+        </div>
+        <div class="section-footer">Adds Expenses to your home screen or desktop. It opens like an app and works without internet.</div>
+      </div>
+` : ''}
       <div class="section">
         <div class="section-header">Plan</div>
         <div class="list">
@@ -57,11 +66,11 @@ export function createSettings(root, { applyTheme }) {
         <div class="list">
           ${row({ id: 'currency', iconName: 'coins', color: 'yellow', title: 'Currency', value: `${currency.code} ${currency.symbol}` })}
           ${row({ id: 'appearance', iconName: 'circle-half', color: 'blue', title: 'Appearance', value: APPEARANCE_LABELS[s.appearance] })}
-          ${switchRow({ id: 'lock', iconName: 'fingerprint', color: 'gray', title: 'App Lock', checked: s.lock && canLock, disabled: !canLock && !s.lock })}
-          ${switchRow({ id: 'reminder', iconName: 'bell', color: 'red', title: 'Daily Reminder', checked: s.reminder.enabled })}
-          ${s.reminder.enabled ? row({ id: 'reminder-time', iconName: 'clock-counter-clockwise', color: 'pink', title: 'Remind me at', value: timeLabel(s.reminder.hour, s.reminder.minute) }) : ''}
+          ${app ? switchRow({ id: 'lock', iconName: 'fingerprint', color: 'gray', title: 'App Lock', checked: s.lock && canLock, disabled: !canLock && !s.lock }) : ''}
+          ${app ? switchRow({ id: 'reminder', iconName: 'bell', color: 'red', title: 'Daily Reminder', checked: s.reminder.enabled }) : ''}
+          ${app && s.reminder.enabled ? row({ id: 'reminder-time', iconName: 'clock-counter-clockwise', color: 'pink', title: 'Remind me at', value: timeLabel(s.reminder.hour, s.reminder.minute) }) : ''}
         </div>
-        <div class="section-footer">${canLock ? 'App Lock asks for your fingerprint, face or phone PIN when you open the app.' : 'To use App Lock, first set a screen lock (PIN or fingerprint) in your phone’s settings.'}</div>
+        ${app ? `<div class="section-footer">${canLock ? 'App Lock asks for your fingerprint, face or phone PIN when you open the app.' : 'To use App Lock, first set a screen lock (PIN or fingerprint) in your phone’s settings.'}</div>` : ''}
       </div>
 
       <div class="section">
@@ -72,14 +81,16 @@ export function createSettings(root, { applyTheme }) {
           ${row({ id: 'restore', iconName: 'download-simple', color: 'teal', title: 'Restore from Backup' })}
           ${row({ id: 'import', iconName: 'tray', color: 'purple', title: 'Import from CSV' })}
         </div>
-        <div class="section-footer">Everything stays on this phone — no account, no internet needed. Save a backup now and then (to Google Drive or WhatsApp) so you never lose it. Import works with the CSV from the old Google Sheet tracker and most bank statements.</div>
+        <div class="section-footer">${app
+          ? 'Everything stays on this phone — no account, no internet needed. Save a backup now and then (to Google Drive or WhatsApp) so you never lose it.'
+          : 'Everything is saved in this browser on this device — no account, nothing is sent anywhere. Clearing your browser’s data deletes it, so save a backup now and then. To move to another device or browser, back up here and restore there.'} Import works with the CSV from the old Google Sheet tracker and most bank statements.</div>
       </div>
 
       <div class="section">
         <div class="list">
           <button class="row tap destructive center" data-go="erase"><div class="row-main"><span class="row-title">Erase All Data</span></div></button>
         </div>
-        <div class="section-footer" style="text-align:center">Expenses ${esc(native.appVersion())}</div>
+        <div class="section-footer" style="text-align:center">${app ? `Expenses ${esc(native.appVersion())}` : 'Expenses for the web'}</div>
       </div>`;
   }
 
@@ -95,6 +106,7 @@ export function createSettings(root, { applyTheme }) {
       currency: openCurrency,
       appearance: () => openAppearance(applyTheme),
       'reminder-time': pickReminderTime,
+      install: installApp,
       export: exportCSV,
       backup: backUp,
       restore: restore,
@@ -134,6 +146,17 @@ export function createSettings(root, { applyTheme }) {
     }
   });
 
+  async function installApp() {
+    const result = await webInstall.prompt();
+    if (result === 'installed') {
+      render();
+    } else if (result === 'ios') {
+      alert({ title: 'Add to Home Screen', message: 'In Safari, tap the Share button (the square with an arrow), then choose "Add to Home Screen".' });
+    } else if (result === 'manual') {
+      alert({ title: 'Install Expenses', message: 'Open your browser’s menu (⋮ or …) and choose "Install app" or "Add to Home screen". In Chrome or Edge on a computer, there is also an install icon at the right end of the address bar.' });
+    }
+  }
+
   async function pickReminderTime() {
     const times = [[8, 0], [12, 0], [14, 0], [18, 0], [20, 0], [21, 0], [22, 0], [23, 0]];
     const current = store.state.settings.reminder;
@@ -164,19 +187,28 @@ export function appGlyph() {
 
 const stamp = () => L.todayISO();
 
+/** True when this browser can hand files to other apps (phones, Chrome/Edge on Windows). */
+function canShareFiles() {
+  try {
+    return !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.csv', { type: 'text/csv' })] }));
+  } catch {
+    return false;
+  }
+}
+
 async function deliver(fileName, mimeType, text, what) {
-  const choice = await actionSheet({
-    title: what,
-    actions: [
-      { text: 'Share…', value: 'share', icon: 'export' },
-      { text: 'Save to Phone…', value: 'save', icon: 'download-simple' },
-    ],
-  });
+  const actions = native.isApp
+    ? [{ text: 'Share…', value: 'share', icon: 'export' }, { text: 'Save to Phone…', value: 'save', icon: 'download-simple' }]
+    : [
+        ...(canShareFiles() ? [{ text: 'Share…', value: 'share', icon: 'export' }] : []),
+        { text: 'Download', value: 'save', icon: 'download-simple' },
+      ];
+  const choice = await actionSheet({ title: what, actions });
   if (!choice) return;
   const result = choice === 'share'
     ? await native.shareFile(fileName, mimeType, text)
     : await native.saveFile(fileName, mimeType, text);
-  if (result.ok && choice === 'save') toast('Saved', { iconName: 'check-circle' });
+  if (result.ok && choice === 'save') toast(native.isApp ? 'Saved' : 'Downloaded', { iconName: 'check-circle' });
   else if (!result.ok && !result.cancelled) alert({ title: 'Couldn’t save the file', message: result.error || 'Please try again.' });
 }
 

@@ -85,9 +85,11 @@
       </section>
 
       <nav class="tabbar" aria-label="Main">
+        <!-- On wide screens this bar becomes a sidebar: brand on top, then the New button, then the tabs -->
+        <div class="sidebar-brand"><img src="icons/favicon.svg" alt=""><span>Expenses</span></div>
         <button class="tab active" data-tab="home"><i class="ph-fill ph-house"></i><span>Summary</span></button>
         <button class="tab" data-tab="activity"><i class="ph ph-list-bullets"></i><span>Transactions</span></button>
-        <button class="tab-add" id="add-btn" aria-label="Add transaction"><span class="add-circle"></span></button>
+        <button class="tab-add" id="add-btn" aria-label="Add transaction" title="New transaction (N)"><span class="add-circle"></span><span class="add-label">New Transaction</span></button>
         <button class="tab" data-tab="insights"><i class="ph ph-chart-pie-slice"></i><span>Insights</span></button>
         <button class="tab" data-tab="settings"><i class="ph ph-gear-six"></i><span>Settings</span></button>
       </nav>

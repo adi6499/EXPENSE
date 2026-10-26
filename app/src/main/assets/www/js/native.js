@@ -2,7 +2,7 @@
 // calls fall back to web features, so the whole app can be tested on a computer.
 
 const bridge = typeof window !== 'undefined' ? window.Native : undefined;
-const STORAGE_KEY = 'expenses-app-data';
+export const WEB_STORAGE_KEY = 'expenses-app-data';
 const pending = new Map();
 let nextId = 0;
 
@@ -63,12 +63,12 @@ export const native = {
 
   load() {
     if (bridge) return bridge.loadData();
-    try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
+    try { return localStorage.getItem(WEB_STORAGE_KEY) || ''; } catch { return ''; }
   },
 
   save(json) {
     if (bridge) return bridge.saveData(json);
-    try { localStorage.setItem(STORAGE_KEY, json); return true; } catch { return false; }
+    try { localStorage.setItem(WEB_STORAGE_KEY, json); return true; } catch { return false; }
   },
 
   /** Asks where to save the file. Resolves { ok, cancelled?, error? }. */

@@ -61,8 +61,10 @@ let largeSheetCount = 0;
  * Opens a sheet that slides up from the bottom. size: 'large' (nearly full screen, pushes the
  * page behind back like iOS) or 'auto' (as tall as its content).
  * Returns { el, body, close }. Drag the grabber/header down to dismiss.
+ * onDismissRequest(reason): when given, Back / Esc / backdrop / drag ask it instead of closing
+ * straight away (the transaction editor uses this to confirm discarding typed changes).
  */
-export function openSheet({ html = '', size = 'large', className = '', onClose, dismissible = true } = {}) {
+export function openSheet({ html = '', size = 'large', className = '', onClose, onDismissRequest, dismissible = true } = {}) {
   const wrap = document.createElement('div');
   wrap.className = `sheet-wrap ${size === 'large' ? 'sheet-large' : 'sheet-auto'} ${className}`;
   wrap.innerHTML = `<div class="sheet-backdrop"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grabber" data-drag></div><div class="sheet-body">${html}</div></div>`;
@@ -80,14 +82,20 @@ export function openSheet({ html = '', size = 'large', className = '', onClose, 
     removeLayer();
     if (document.activeElement && wrap.contains(document.activeElement)) document.activeElement.blur();
     wrap.classList.remove('open');
+    wrap.classList.add('closing');
     sheet.style.transform = '';
     if (size === 'large' && --largeSheetCount === 0) document.body.classList.remove('behind-sheet');
     setTimeout(() => wrap.remove(), 380);
     if (onClose) onClose(reason);
   };
-  const removeLayer = addLayer({ close: () => dismissible && close('back') });
+  const requestClose = reason => {
+    if (!dismissible || closed) return;
+    if (onDismissRequest) onDismissRequest(reason);
+    else close(reason);
+  };
+  const removeLayer = addLayer({ close: () => requestClose('back') });
 
-  if (dismissible) $('.sheet-backdrop', wrap).addEventListener('click', () => close('backdrop'));
+  $('.sheet-backdrop', wrap).addEventListener('click', () => requestClose('backdrop'));
 
   // Drag down to dismiss
   let startY = 0;
@@ -96,6 +104,7 @@ export function openSheet({ html = '', size = 'large', className = '', onClose, 
   let dragging = false;
   sheet.addEventListener('pointerdown', e => {
     if (!dismissible || !e.target.closest('[data-drag]') || e.target.closest('button, input, textarea')) return;
+    if (window.matchMedia('(min-width: 900px)').matches) return; // centred dialog on desktop: nothing to drag
     dragging = true;
     startY = lastY = e.clientY;
     lastT = e.timeStamp;
@@ -115,8 +124,8 @@ export function openSheet({ html = '', size = 'large', className = '', onClose, 
     sheet.classList.remove('dragging');
     const dy = e.clientY - startY;
     const velocity = (e.clientY - lastY) / Math.max(1, e.timeStamp - lastT);
-    if (dy > 140 || (dy > 40 && velocity > 0.4)) close('drag');
-    else sheet.style.transform = '';
+    sheet.style.transform = '';
+    if (dy > 140 || (dy > 40 && velocity > 0.4)) requestClose('drag');
   };
   sheet.addEventListener('pointerup', endDrag);
   sheet.addEventListener('pointercancel', endDrag);
@@ -475,10 +484,12 @@ export function bindKeypad(root, onKey) {
       document.removeEventListener('keydown', onKeyDown);
       return;
     }
-    if (overlayRoot().lastElementChild !== root || !root.classList.contains('open')) return;
+    // Only the top-most sheet listens, and not while it is closing (typing works during the open animation)
+    if (overlayRoot().lastElementChild !== root || root.classList.contains('closing')) return;
     const typingInField = e.target instanceof Element && e.target.closest('input, textarea, [contenteditable]');
     if (e.ctrlKey || e.metaKey || e.altKey || typingInField) return;
-    const key = /^[0-9]$/.test(e.key) ? e.key : KEYBOARD_KEYS[e.key];
+    const key = /^[0-9]$/.test(e.key) ? e.key
+      : KEYBOARD_KEYS[e.key] || (e.code === 'Period' || e.code === 'NumpadDecimal' ? '.' : null);
     if (!key) return;
     e.preventDefault();
     const button = $(`.kp-key[data-k="${key}"]`, pad);

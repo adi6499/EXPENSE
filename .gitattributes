@@ -1,0 +1,8 @@
+# Same line endings everywhere, so the security fingerprint of index.html's inline script
+# (in vercel.json) matches on every computer and on the server.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.woff2 binary
+*.jar binary

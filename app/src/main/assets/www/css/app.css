@@ -9,8 +9,9 @@
 }
 
 :root {
-  --safe-top: 0px;
-  --safe-bottom: 0px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sidebar-w: 0px;
   --tabbar-h: 50px;
   --nav-h: 44px;
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
@@ -21,6 +22,7 @@
   --bg2: #ffffff;
   --bg3: #f2f2f7;
   --bg-press: #d1d1d6;
+  --bg-hover: #f4f4f6;
   --bg-sheet: #f2f2f7;
   --sheet-list: #ffffff;
   --label: #000000;
@@ -63,6 +65,7 @@
   --bg2: #1c1c1e;
   --bg3: #2c2c2e;
   --bg-press: #3a3a3c;
+  --bg-hover: #26262a;
   --bg-sheet: #1c1c1e;
   --sheet-list: #2c2c2e;
   --label: #ffffff;
@@ -423,6 +426,11 @@ body.behind-sheet #tabs {
 .tab-add {
   display: grid;
   place-items: center;
+}
+
+.sidebar-brand,
+.add-label {
+  display: none;
 }
 
 .add-circle {
@@ -2254,8 +2262,212 @@ body.behind-sheet #tabs {
   .cat-strip { padding-bottom: 6px; }
 }
 
-/* Wide screens (tablets, desktop testing): keep a phone-width column */
+/* Tablets: bottom tab bar stays, content keeps a comfortable reading width */
 @media (min-width: 700px) {
-  .content, .large-title-wrap, .toolbar, .search, .chips-row { max-width: 640px; margin-left: auto; margin-right: auto; }
+  .content, .large-title-wrap, .toolbar, .search, .act-chips { max-width: 640px; margin-left: auto; margin-right: auto; }
   .sheet { max-width: 560px; margin: 0 auto; }
+}
+
+/* Mouse and trackpad: hover feedback */
+@media (hover: hover) and (pointer: fine) {
+  .row.tap:hover,
+  .swipe-content:hover,
+  .legend-row[data-cat]:hover {
+    background: var(--bg-hover);
+  }
+  .legend-row[data-cat] { border-radius: 8px; }
+  .chip:hover { background: var(--fill); }
+  .chip.on:hover { background: var(--blue-tint); }
+  .icon-btn:hover { background: var(--fill-2); }
+  .kp-key:not(.kp-done):hover { background: var(--fill-2); }
+  .btn:hover { filter: brightness(1.06); }
+  .bar-col:hover .bar { opacity: 0.8; }
+  .cat-item:hover .tile { transform: scale(1.06); }
+  .action-btn:hover, .alert-buttons button:hover { background: var(--fill-2); }
+  .scroller { scrollbar-width: thin; }
+}
+
+/* Desktop: the tab bar becomes a sidebar, sheets become centred dialogs */
+@media (min-width: 900px) {
+  :root { --sidebar-w: 248px; }
+
+  .tab-page,
+  #stack {
+    left: var(--sidebar-w);
+  }
+
+  .tabbar {
+    top: 0;
+    right: auto;
+    bottom: 0;
+    width: var(--sidebar-w);
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: calc(var(--safe-top) + 18px) 12px 18px;
+    background: var(--bg2);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0.5px 0 0 var(--separator);
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px 18px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .sidebar-brand img {
+    width: 34px;
+    height: 34px;
+  }
+
+  .tab-add {
+    order: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 42px;
+    margin-bottom: 14px;
+    border-radius: 11px;
+    background: var(--blue);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .tab-add:hover { filter: brightness(1.06); }
+  .tab-add:active { opacity: 0.8; }
+
+  .add-circle {
+    width: 16px;
+    height: 16px;
+    background: none;
+    box-shadow: none;
+  }
+
+  .add-circle::before,
+  .add-circle::after {
+    width: 14px;
+    height: 2.5px;
+  }
+
+  .tab-add:active .add-circle { transform: none; }
+  .add-label { display: inline; }
+
+  .tab {
+    order: 2;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 10px;
+    color: var(--label);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .tab .ph,
+  .tab .ph-fill {
+    font-size: 21px;
+    color: var(--blue);
+  }
+
+  .tab:hover { background: var(--fill-2); }
+
+  .tab.active {
+    background: var(--blue);
+    color: #fff;
+  }
+
+  .tab.active .ph,
+  .tab.active .ph-fill {
+    color: #fff;
+  }
+
+  .content, .large-title-wrap, .toolbar, .search, .act-chips { max-width: 760px; }
+  .large-title-wrap { padding-top: 14px; }
+  .bottom-space,
+  .pushed .bottom-space { height: 48px; }
+
+  /* Pushed pages slide over the content area only; nothing shifts sideways */
+  #tabs.covered,
+  .page.pushed.covered { translate: none; }
+
+  .toast {
+    left: calc(50% + var(--sidebar-w) / 2);
+    bottom: 28px;
+  }
+
+  /* Sheets: centred dialogs with a dimmed backdrop, no "card stack" effect */
+  body.behind-sheet { background: var(--bg); }
+  body.behind-sheet #tabs,
+  body.behind-sheet #stack {
+    scale: none;
+    border-radius: 0;
+    filter: none;
+  }
+
+  .open > .sheet-backdrop,
+  .sheet-large.open > .sheet-backdrop {
+    background: rgba(0, 0, 0, 0.32) !important;
+  }
+
+  .sheet {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    width: min(500px, calc(100vw - 48px));
+    max-width: none;
+    margin: 0;
+    max-height: min(860px, calc(100vh - 48px));
+    padding: 6px 0 0;
+    border-radius: 18px;
+    opacity: 0;
+    transform: translate(-50%, -47%) scale(0.97);
+    transition: transform 0.35s var(--ease), opacity 0.22s;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  }
+
+  .open > .sheet {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+
+  .sheet-large > .sheet { height: min(800px, calc(100vh - 48px)); }
+  .sheet-auto > .sheet { width: min(420px, calc(100vw - 48px)); }
+  .sheet-grabber { display: none; }
+  .sheet-header { padding-top: 4px; }
+  .sheet-auto .keypad { padding-bottom: 14px; }
+
+  .action-sheet {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    width: 360px;
+    opacity: 0;
+    transform: translate(-50%, -46%);
+    transition: transform 0.3s var(--ease), opacity 0.2s;
+  }
+
+  .action-wrap.open .action-sheet {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+
+  .action-wrap > .sheet-backdrop { background: rgba(0, 0, 0, 0.25); }
+  .action-btn { min-height: 50px; font-size: 17px; }
+
+  .onboard { align-items: center; }
+  .onboard-body, .onboard-actions { width: 100%; max-width: 440px; }
 }

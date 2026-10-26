@@ -1,8 +1,9 @@
 // Starts the app: loads data, wires the tabs, back button, dark mode, app lock and shortcuts.
+// The same code runs inside the Android app and as a website; web-only parts check native.isApp.
 import { store } from './store.js';
-import { native } from './native.js';
+import { native, WEB_STORAGE_KEY } from './native.js';
 import * as L from './logic.js';
-import { $, $$, esc, icon, closeTopLayer, bindNavbar, haptic, toast } from './ui.js';
+import { $, $$, esc, icon, closeTopLayer, bindNavbar, haptic, toast, hasLayers, onLayersChange } from './ui.js';
 import { openEditor } from './editor.js';
 import { createHome } from './home.js';
 import { createActivity } from './activity.js';
@@ -31,6 +32,8 @@ function applyTheme() {
   const dark = mode === 'dark' || (mode === 'auto' && native.isSystemDark());
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   native.setAppearance(dark);
+  const themeColor = $('#theme-color');
+  if (themeColor) themeColor.content = dark ? '#000000' : '#f2f2f7';
 }
 window.__onSystemTheme = applyTheme;
 
@@ -51,6 +54,7 @@ function goTo(tab) {
     dirty.delete(tab);
     screens[tab].render();
   }
+  syncHistory();
 }
 
 function renderAll() {
@@ -67,7 +71,7 @@ function addNew(preset) {
   openEditor(null, preset);
 }
 
-// ---------- App lock
+// ---------- App lock (Android only: the website has no fingerprint check)
 
 let lockEl = null;
 let hiddenAt = 0;
@@ -131,17 +135,120 @@ window.__onAction = action => {
   if (action === 'add' && store.state.settings.onboarded && !lockEl) addNew();
 };
 
+// ---------- Website: the browser's back button
+// While a panel is open or another tab is showing, one extra history entry exists, so Back
+// closes the panel (or returns to Summary) instead of leaving the site.
+
+let historyArmed = false;
+let ignoreNextPop = false;
+
+function syncHistory() {
+  if (native.isApp || ignoreNextPop) return;
+  const wantEntry = hasLayers() || activeTab !== 'home';
+  if (wantEntry && !historyArmed) {
+    history.pushState({ expenses: true }, '');
+    historyArmed = true;
+  } else if (!wantEntry && historyArmed) {
+    historyArmed = false;
+    ignoreNextPop = true;
+    history.back();
+  }
+}
+
+function onPopState() {
+  if (ignoreNextPop) {
+    ignoreNextPop = false;
+    syncHistory();
+    return;
+  }
+  historyArmed = false;
+  window.__onBack();
+  syncHistory();
+}
+
+// ---------- Website: install button, offline, keyboard
+
+let installEvent = null;
+
+const isStandalone = () =>
+  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+const webInstall = {
+  canShow: () => !native.isApp && !isStandalone(),
+  async prompt() {
+    if (installEvent) {
+      installEvent.prompt();
+      const choice = await installEvent.userChoice.catch(() => null);
+      installEvent = null;
+      return choice && choice.outcome === 'accepted' ? 'installed' : 'dismissed';
+    }
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return ios ? 'ios' : 'manual';
+  },
+};
+
+function setUpWebsite() {
+  // A reload while a panel was open leaves us on our extra entry: treat it as the base again
+  if (history.state && history.state.expenses) history.replaceState(null, '');
+  window.addEventListener('popstate', onPopState);
+  onLayersChange(syncHistory);
+
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installEvent = e;
+  });
+  window.addEventListener('appinstalled', () => {
+    installEvent = null;
+    toast('Installed — find Expenses with your other apps', { iconName: 'check-circle' });
+    dirty.add('settings');
+  });
+
+  // Another tab of the site changed the data: show the same thing here
+  window.addEventListener('storage', e => {
+    if (e.key !== WEB_STORAGE_KEY) return;
+    store.reload();
+    applyTheme();
+  });
+
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('Offline support unavailable:', err));
+  }
+
+  // The launcher shortcut opens ?action=add: tidy the address so a reload doesn't add again
+  if (location.search.includes('action=')) history.replaceState(null, '', location.pathname);
+}
+
+/** Asks the browser to keep the data even when the device is short of space (best effort). */
+function askToKeepData() {
+  if (!native.isApp && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (!lockEl && closeTopLayer()) e.preventDefault();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  if (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable]')) return;
+  // "N" (or +) adds a transaction from anywhere, like a desktop app
+  if ((e.key === 'n' || e.key === 'N' || e.key === '+') && !hasLayers() && !lockEl && store.state.settings.onboarded && !$('.onboard')) {
+    e.preventDefault();
+    addNew();
+  }
+});
+
 // ---------- Start
 
 function boot() {
-  const insets = native.insets();
   const testInsets = new URLSearchParams(location.search).get('insets'); // e.g. ?insets=28,20 to preview phone bars in a browser
   if (testInsets) {
     const [top, bottom] = testInsets.split(',').map(Number);
     setInsets(top || 0, bottom || 0);
-  } else {
+  } else if (native.isApp) {
+    const insets = native.insets();
     setInsets(insets.top, insets.bottom);
   }
+  // Otherwise CSS uses the browser's own safe-area values (iPhone notch, home bar)
 
   store.load();
   applyTheme();
@@ -160,7 +267,7 @@ function boot() {
         activity.show(options);
       },
     }),
-    settings: createSettings($('#settings'), { applyTheme }),
+    settings: createSettings($('#settings'), { applyTheme, webInstall }),
   };
 
   store.subscribe(renderAll);
@@ -172,17 +279,22 @@ function boot() {
   $$('.tab-page').forEach(bindNavbar);
   renderAll();
 
+  const launchAction = native.consumeLaunchAction();
+  if (!native.isApp) setUpWebsite();
   native.ready();
 
   if (!store.state.settings.onboarded) {
-    showOnboarding(() => renderAll());
+    showOnboarding(() => {
+      renderAll();
+      askToKeepData();
+    });
   } else {
     lock();
-    const action = native.consumeLaunchAction();
-    if (action === 'add' && !lockEl) setTimeout(() => addNew(), 300);
+    if (launchAction === 'add' && !lockEl) setTimeout(() => addNew(), 300);
+    if (store.state.transactions.length) askToKeepData();
   }
 
-  if (store.saveFailed) toast('Couldn’t save to this phone’s storage', { iconName: 'warning-circle' });
+  if (store.saveFailed) toast(native.isApp ? 'Couldn’t save to this phone’s storage' : 'This browser isn’t letting the site save data', { iconName: 'warning-circle' });
 }
 
 try {
