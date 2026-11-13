@@ -11,6 +11,7 @@ import { createInsights } from './insights.js';
 import { createSettings } from './settings.js';
 import { openBudgets } from './manage.js';
 import { showOnboarding } from './onboarding.js';
+import { checkMessages, openReview, addFromSharedText, syncPhone, takeMessageText } from './messages.js';
 
 const TAB_ICONS = { home: 'house', activity: 'list-bullets', insights: 'chart-pie-slice', settings: 'gear-six' };
 const LOCK_AFTER_MS = 60_000;
@@ -103,8 +104,45 @@ async function unlock() {
   if (result.ok && lockEl) {
     lockEl.remove();
     lockEl = null;
+    for (const fn of afterUnlock.splice(0)) fn();
   }
 }
+
+// ---------- Bank messages (Android only; see messages.js)
+
+const afterUnlock = [];
+
+/** Runs fn now, or once the app is unlocked (so nothing shows over the lock screen). */
+function whenUnlocked(fn) {
+  if (!store.state.settings.onboarded) return;
+  if (lockEl) afterUnlock.push(fn);
+  else fn();
+}
+
+function readMessages(thenShow = false) {
+  whenUnlocked(async () => {
+    await checkMessages();
+    if (!thenShow) return;
+    if (store.state.sms.pending.length) openReview();
+    else goTo('home');
+  });
+}
+
+window.__onSms = () => readMessages();
+
+/**
+ * Website: a bank message sent by link, #sms=<the message> (an iPhone Shortcut does this for each
+ * bank SMS). After the # nothing is sent to the server, so the message stays on this device.
+ */
+function takeLinkedMessage() {
+  const match = location.hash.match(/^#sms=([\s\S]*)$/);
+  if (!match) return;
+  let text = match[1];
+  try { text = decodeURIComponent(text); } catch { /* use it as it is */ }
+  history.replaceState(history.state, '', location.pathname + location.search);
+  whenUnlocked(() => takeMessageText(text));
+}
+window.__onSharedText = text => whenUnlocked(() => addFromSharedText(text));
 
 window.__onPause = () => {
   hiddenAt = Date.now();
@@ -119,6 +157,7 @@ window.__onResume = () => {
     lastDay = today;
     if (!store.applyRecurring()) renderAll();
   }
+  readMessages();
 };
 
 window.__onBack = () => {
@@ -133,6 +172,7 @@ window.__onBack = () => {
 
 window.__onAction = action => {
   if (action === 'add' && store.state.settings.onboarded && !lockEl) addNew();
+  if (action === 'sms') readMessages(true);
 };
 
 // ---------- Website: the browser's back button
@@ -280,6 +320,7 @@ function boot() {
   renderAll();
 
   const launchAction = native.consumeLaunchAction();
+  const sharedText = native.consumeSharedText();
   if (!native.isApp) setUpWebsite();
   native.ready();
 
@@ -293,6 +334,12 @@ function boot() {
     if (launchAction === 'add' && !lockEl) setTimeout(() => addNew(), 300);
     if (store.state.transactions.length) askToKeepData();
   }
+
+  syncPhone();
+  readMessages(launchAction === 'sms');
+  if (sharedText) whenUnlocked(() => setTimeout(() => addFromSharedText(sharedText), 300));
+  takeLinkedMessage();
+  window.addEventListener('hashchange', takeLinkedMessage);
 
   if (store.saveFailed) toast(native.isApp ? 'Couldn’t save to this phone’s storage' : 'This browser isn’t letting the site save data', { iconName: 'warning-circle' });
 }

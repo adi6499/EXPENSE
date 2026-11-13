@@ -19,7 +19,7 @@ export function txRow(t, { swipe = true, showDate = false } = {}) {
     <div class="row-main">
       <div class="row-text">
         <div class="row-title">${esc(title)}</div>
-        <div class="row-sub">${t.recurringId ? `<span class="tx-repeat">${icon('repeat')}</span> ` : ''}${esc(sub)}</div>
+        <div class="row-sub">${t.recurringId ? `<span class="tx-repeat">${icon('repeat')}</span> ` : ''}${t.sms ? `<span class="tx-repeat" title="From a bank message">${icon('chat-text')}</span> ` : ''}${esc(sub)}</div>
       </div>
       <div class="tx-amount ${t.type}">${esc(amount)}</div>
     </div>`;

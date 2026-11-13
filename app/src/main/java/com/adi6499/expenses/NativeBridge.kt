@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.os.CancellationSignal
 import android.view.HapticFeedbackConstants
 import android.webkit.JavascriptInterface
@@ -223,6 +225,87 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun setAppearance(dark: Boolean) {
         activity.runOnUiThread { activity.applySystemBars(dark) }
+    }
+
+    // ---- Bank text messages (see BankSms.kt; the web app reads them in js/sms.js)
+
+    @JavascriptInterface
+    fun smsStatus(): String = BankSms.status(activity)
+
+    /** Android's "Allow Expenses to send and view SMS messages?" Answers { ok, blocked }. */
+    @JavascriptInterface
+    fun requestSms(id: String) {
+        activity.runOnUiThread {
+            if (BankSms.isGranted(activity)) {
+                activity.resolve(id, JSONObject().put("ok", true))
+                return@runOnUiThread
+            }
+            activity.startFileRequest(id)
+            try {
+                activity.smsPermissionLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
+            } catch (e: Exception) {
+                activity.resolve(id, JSONObject().put("ok", false).put("error", e.message ?: "Could not ask for SMS access"))
+            }
+        }
+    }
+
+    /** Messages newer than since (ms) that mention money. Answers { ok, messages }. */
+    @JavascriptInterface
+    fun readSms(id: String, since: String) {
+        Thread {
+            val answer = try {
+                if (!BankSms.isGranted(activity)) {
+                    JSONObject().put("ok", false).put("error", "SMS access is off")
+                } else {
+                    JSONObject().put("ok", true).put("messages", BankSms.read(activity, since.toLongOrNull() ?: 0L))
+                }
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("error", e.message ?: "Could not read messages")
+            }
+            activity.resolve(id, answer)
+        }.start()
+    }
+
+    @JavascriptInterface
+    fun setSmsOptions(enabled: Boolean, notify: Boolean) {
+        BankSms.saveOptions(activity, enabled, notify)
+        activity.runOnUiThread { activity.updateSmsWatch() }
+    }
+
+    /** Android 13+: notifications need permission. Answers { ok }. */
+    @JavascriptInterface
+    fun requestNotifications(id: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            activity.resolve(id, JSONObject().put("ok", true))
+            return
+        }
+        activity.runOnUiThread {
+            activity.startFileRequest(id)
+            activity.notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /** This app's page in the phone's Settings, to turn a permission back on. */
+    @JavascriptInterface
+    fun openAppSettings() {
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null))
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** Text shared to Expenses from another app (a bank message), handed over once. */
+    @JavascriptInterface
+    fun consumeSharedText(): String {
+        val text = activity.pendingSharedText ?: ""
+        activity.pendingSharedText = null
+        return text
     }
 
     // ---- Daily reminder

@@ -1,6 +1,21 @@
 // The app's data and every change to it. Saved to the phone after each change.
 import * as L from './logic.js';
+import * as S from './sms.js';
 import { native } from './native.js';
+
+const MAX_PENDING = 300;
+
+function defaultSms() {
+  return {
+    enabled: false,   // read bank text messages (Android only)
+    autoAdd: false,   // add them straight away instead of waiting for a check
+    notify: true,     // a notification when a bank message arrives and the app is closed
+    lastDate: 0,      // newest message already looked at (milliseconds)
+    pending: [],      // found in messages, waiting to be checked and added
+    payees: {},       // what was learned per payee (see "Learning" in sms.js)
+    accounts: {},     // 'HDFC Bank|1234' → account chosen for it
+  };
+}
 
 export const COLORS = ['red', 'orange', 'yellow', 'green', 'mint', 'teal', 'cyan', 'blue', 'indigo', 'purple', 'pink', 'brown', 'gray'];
 
@@ -62,6 +77,7 @@ export function createDefaultState() {
     accounts: defaultAccounts(),
     recurring: [],
     budgets: { monthly: 0, categories: {} },
+    sms: defaultSms(),
     settings: {
       currency: 'INR',
       appearance: 'auto',
@@ -84,8 +100,16 @@ export function normalizeState(raw) {
     accounts: Array.isArray(raw.accounts) ? raw.accounts : base.accounts,
     recurring: Array.isArray(raw.recurring) ? raw.recurring : [],
     budgets: { ...base.budgets, ...(raw.budgets || {}) },
+    sms: { ...base.sms, ...(raw.sms && typeof raw.sms === 'object' ? raw.sms : {}) },
     settings: { ...base.settings, ...(raw.settings || {}) },
   };
+  const sms = state.sms;
+  sms.pending = Array.isArray(sms.pending)
+    ? sms.pending.filter(p => p && p.id && Number.isFinite(p.amount) && p.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(p.date || '')).slice(0, MAX_PENDING)
+    : [];
+  for (const key of ['payees', 'accounts']) if (!sms[key] || typeof sms[key] !== 'object') sms[key] = {};
+  sms.lastDate = Number(sms.lastDate) || 0;
+  delete sms.merchants;
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
   state.budgets.categories = state.budgets.categories || {};
   state.transactions = state.transactions
@@ -100,6 +124,11 @@ export function normalizeState(raw) {
       note: typeof t.note === 'string' ? t.note : '',
       createdAt: t.createdAt || Date.now(),
       ...(t.recurringId ? { recurringId: t.recurringId } : {}),
+      ...(t.sms && typeof t.sms === 'object' && t.sms.id ? { sms: {
+        id: String(t.sms.id),
+        ...(t.sms.ref ? { ref: String(t.sms.ref) } : {}),
+        ...(t.sms.payee ? { payee: String(t.sms.payee) } : {}),
+      } } : {}),
     }));
   // Every type always keeps an "Other" category to fall back on
   for (const [id, type] of [['other', 'expense'], ['other_in', 'income']]) {
@@ -333,10 +362,160 @@ export const store = {
     this.commit();
   },
 
+  // ---- Bank text messages (see sms.js and messages.js)
+
+  setSms(patch) {
+    Object.assign(this.state.sms, patch);
+    this.commit();
+  },
+
+  /**
+   * Takes what was found in new messages and decides for each (see S.decide): add it now
+   * (a payee it has learned, or "Add Without Asking"), skip it (a payee you always ignore),
+   * or list it to check. Returns { added: [{ tx, finding }], queued, skipped }.
+   */
+  takeFindings(findings, newestDate = 0) {
+    const sms = this.state.sms;
+    const added = [];
+    let queued = 0;
+    let skipped = 0;
+    const now = Date.now();
+    for (const f of [...findings].sort((a, b) => a.time - b.time)) {
+      if (S.alreadyHave(f, this.state)) continue;
+      const decision = S.decide(f, this.state);
+      if (decision === 'ignore') {
+        skipped++;
+      } else if (decision === 'add') {
+        const tx = { id: L.uid(), createdAt: now + added.length, ...S.toTransaction(f, this.state) };
+        this.state.transactions.push(tx);
+        S.learnAdded(this.state, f, tx);
+        added.push({ tx, finding: f });
+      } else {
+        sms.pending.push(f);
+        queued++;
+      }
+    }
+    sms.pending.sort((a, b) => b.time - a.time);
+    if (sms.pending.length > MAX_PENDING) sms.pending.length = MAX_PENDING;
+    if (newestDate > sms.lastDate) sms.lastDate = newestDate;
+    if (added.length || queued || skipped) this.commit();
+    else this.save();
+    return { added, queued, skipped };
+  },
+
+  finding(id) {
+    return this.state.sms.pending.find(p => p.id === id) || null;
+  },
+
+  /** A copy of what has been learned, so an Undo can put it back exactly. */
+  learningSnapshot() {
+    return JSON.parse(JSON.stringify({ payees: this.state.sms.payees, accounts: this.state.sms.accounts }));
+  },
+
+  /**
+   * Adds one found transaction. choice: what was picked in the editor (learned, including the
+   * name typed and the account). Returns { tx, before } (before: for Undo).
+   */
+  acceptFinding(id, choice = null) {
+    const f = this.finding(id);
+    if (!f) return null;
+    const before = this.learningSnapshot();
+    const guess = S.toTransaction(f, this.state);
+    const tx = { id: L.uid(), createdAt: Date.now(), ...guess, ...(choice || {}), sms: guess.sms };
+    S.learnAdded(this.state, f, tx, { explicit: !!choice });
+    this.state.transactions.push(tx);
+    this.state.sms.pending = this.state.sms.pending.filter(p => p.id !== id);
+    this.commit();
+    return { tx, before };
+  },
+
+  acceptAllFindings() {
+    const now = Date.now();
+    const before = this.learningSnapshot();
+    const list = [...this.state.sms.pending].reverse();
+    const added = list.map((f, i) => {
+      const tx = { id: L.uid(), createdAt: now + i, ...S.toTransaction(f, this.state) };
+      S.learnAdded(this.state, f, tx);
+      return tx;
+    });
+    this.state.transactions.push(...added);
+    this.state.sms.pending = [];
+    this.commit();
+    return { added, before };
+  },
+
+  ignoreFinding(id) {
+    const f = this.finding(id);
+    if (!f) return null;
+    const before = this.learningSnapshot();
+    S.learnIgnored(this.state, f);
+    this.state.sms.pending = this.state.sms.pending.filter(p => p.id !== id);
+    this.commit();
+    return { finding: f, before };
+  },
+
+  /**
+   * Undo: puts findings back on the list to check and takes out transactions made from them.
+   * before: learning to put back; distrust: an automatic add was undone, so stop trusting the payee.
+   */
+  restoreFindings(findings, txIds = [], { before = null, distrust = false } = {}) {
+    const ids = new Set(txIds);
+    if (ids.size) this.state.transactions = this.state.transactions.filter(t => !ids.has(t.id));
+    for (const f of findings) if (!this.finding(f.id)) this.state.sms.pending.push(f);
+    this.state.sms.pending.sort((a, b) => b.time - a.time);
+    if (before) Object.assign(this.state.sms, before);
+    if (distrust) for (const f of findings) S.learnUndone(this.state, f);
+    this.commit();
+  },
+
+  /** A transaction from a message was edited: learn the new category and name for its payee. */
+  learnFromEdit(tx) {
+    if (!tx || !tx.sms) return;
+    S.learnEdited(this.state, tx);
+    this.save();
+  },
+
+  /** Settings → Learned: 'auto' | 'ask' | 'ignore' | null (go back to learning by itself). */
+  setPayeeMode(key, mode) {
+    const p = this.state.sms.payees[key];
+    if (!p) return;
+    if (mode) p.mode = mode;
+    else delete p.mode;
+    if (mode === 'ask' || !mode) { p.seen = Math.min(p.seen || 0, 1); p.ignored = 0; }
+    this.commit();
+  },
+
+  setPayeeCategory(key, categoryId) {
+    const p = this.state.sms.payees[key];
+    if (!p) return;
+    p.categoryId = categoryId;
+    this.commit();
+  },
+
+  forgetPayee(key) {
+    delete this.state.sms.payees[key];
+    this.commit();
+  },
+
+  forgetAllLearning() {
+    this.state.sms.payees = {};
+    this.state.sms.accounts = {};
+    this.commit();
+  },
+
   // ---- Bulk
 
   replaceAll(raw) {
+    // Message reading belongs to this phone: keep its switches, learn the backup's choices
+    const here = this.state.sms;
     this.state = normalizeState(raw);
+    const backup = this.state.sms;
+    this.state.sms = {
+      ...here,
+      lastDate: Math.max(here.lastDate, backup.lastDate),
+      payees: { ...backup.payees, ...here.payees },
+      accounts: { ...backup.accounts, ...here.accounts },
+    };
     this.state.settings.onboarded = true;
     this.applyRecurring(false);
     this.commit();
@@ -344,8 +523,11 @@ export const store = {
 
   eraseAll() {
     const keep = { currency: this.state.settings.currency, appearance: this.state.settings.appearance };
+    const { enabled, autoAdd, notify, lastDate } = this.state.sms;
     this.state = createDefaultState();
     Object.assign(this.state.settings, keep, { onboarded: true });
+    // Old messages stay read, so erasing doesn't bring them all back
+    Object.assign(this.state.sms, { enabled, autoAdd, notify, lastDate });
     this.commit();
   },
 

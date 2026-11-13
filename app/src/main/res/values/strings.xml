@@ -4,4 +4,5 @@
     <string name="shortcut_add_short">Add expense</string>
     <string name="shortcut_add_long">Add a new expense</string>
     <string name="reminder_channel">Daily reminder</string>
+    <string name="sms_channel">Bank messages</string>
 </resources>

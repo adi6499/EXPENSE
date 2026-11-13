@@ -9,17 +9,22 @@ import { openCategoryEditor, openAccountEditor } from './manage.js';
 
 const TYPE_OPTIONS = [{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }];
 
-/** existing: a transaction to edit, or null for a new one. preset: { type, categoryId, date }. */
+/**
+ * existing: a transaction to edit, or null for a new one.
+ * preset (new ones): { type, categoryId, date, amount, note, accountId } to start from,
+ * source: a small line saying where it came from (a bank message),
+ * onSave(fields): adds it instead of the usual store.addTransaction; returns the transaction.
+ */
 export function openEditor(existing = null, preset = {}) {
   const editing = !!existing;
   const rule = existing && existing.recurringId ? store.rule(existing.recurringId) : null;
   const s = {
     type: existing ? existing.type : (preset.type || 'expense'),
-    typed: existing ? L.minorToTyped(existing.amount) : '',
+    typed: existing ? L.minorToTyped(existing.amount) : (preset.amount > 0 ? L.minorToTyped(preset.amount) : ''),
     categoryId: existing ? existing.categoryId : (preset.categoryId || null),
-    accountId: existing ? existing.accountId : store.state.settings.lastAccountId,
+    accountId: existing ? existing.accountId : (preset.accountId !== undefined ? preset.accountId : store.state.settings.lastAccountId),
     date: existing ? existing.date : (preset.date || L.todayISO()),
-    note: existing ? existing.note : '',
+    note: existing ? existing.note : (preset.note || ''),
     repeat: rule ? rule.frequency : 'never',
     categoryTouched: editing || !!preset.categoryId,
   };
@@ -43,6 +48,7 @@ export function openEditor(existing = null, preset = {}) {
         ${segmented(TYPE_OPTIONS, s.type, 'type')}
         <div class="editor-center">
           <div class="amount-display"><span class="amount-symbol">${esc(L.currencyInfo(store.currency).symbol)}</span><span class="amount-value"></span></div>
+          ${!editing && preset.source ? `<div class="editor-source">${icon('chat-text')}<span>${esc(preset.source)}</span></div>` : ''}
           <input class="note-input" type="text" placeholder="Add a note" maxlength="80" enterkeyhint="done" autocomplete="off" spellcheck="false" value="${esc(s.note)}">
           <div class="suggestions"></div>
         </div>
@@ -130,6 +136,9 @@ export function openEditor(existing = null, preset = {}) {
     let tx;
     if (editing) {
       tx = store.updateTransaction(existing.id, fields);
+      if (tx && tx.sms) store.learnFromEdit(tx); // a bank-message payee learns the new category/name
+    } else if (preset.onSave) {
+      tx = preset.onSave(fields);
     } else {
       tx = store.addTransaction(fields);
     }

@@ -4,6 +4,10 @@ import { native } from './native.js';
 import * as L from './logic.js';
 import { $, $$, esc, icon, tile, alert, actionSheet, openFormSheet, segmented, bindSegmented, haptic, toast } from './ui.js';
 import { openCategories, openAccounts, openBudgets, openRepeating, openCurrency, openAppearance } from './manage.js';
+import {
+  canReadMessages, turnOn as turnOnMessages, turnOff as turnOffMessages, setNotify, checkMessages, openReview,
+  openPaste, openLearned, openIphoneSetup,
+} from './messages.js';
 
 const APPEARANCE_LABELS = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 
@@ -73,6 +77,7 @@ ${showInstall ? `
         ${app ? `<div class="section-footer">${canLock ? 'App Lock asks for your fingerprint, face or phone PIN when you open the app.' : 'To use App Lock, first set a screen lock (PIN or fingerprint) in your phone’s settings.'}</div>` : ''}
       </div>
 
+${messagesSection(st.sms)}
       <div class="section">
         <div class="section-header">Your data</div>
         <div class="list">
@@ -94,6 +99,41 @@ ${showInstall ? `
       </div>`;
   }
 
+  function messagesSection(sms) {
+    const reads = canReadMessages();
+    const on = reads && sms.enabled && native.smsStatus() === 'granted';
+    const learned = Object.keys(sms.payees).length + Object.keys(sms.accounts).length;
+    let footer;
+    if (on) {
+      footer = (sms.autoAdd
+        ? 'New bank transactions are added as they arrive. You can still change or delete any of them.'
+        : 'New bank transactions wait on Summary for a quick check before they’re added.')
+        + ' Only messages about money going out or coming in are read, and nothing leaves this phone.';
+    } else if (reads) {
+      footer = 'Turns the messages your bank sends — “Rs 500 debited from A/c XX1234…” — into transactions, so you don’t have to type them. Nothing leaves this phone.';
+    } else {
+      footer = 'A website can’t read your text messages, so paste a bank message here'
+        + (native.isApp ? '.' : ', or on iPhone set up a Shortcut that sends each one to Expenses by itself. The Android app reads them for you.');
+    }
+    footer += ' Expenses learns as you go: add the same payee twice and it’s added for you from then on; ignore it twice and it’s skipped.';
+    return `
+      <div class="section">
+        <div class="section-header">Bank Messages</div>
+        <div class="list">
+          ${reads ? switchRow({ id: 'sms', iconName: 'chat-text', color: 'green', title: 'Read Bank SMS', checked: on }) : ''}
+          ${on ? switchRow({ id: 'sms-auto', iconName: 'lightning', color: 'orange', title: 'Add Without Asking', checked: sms.autoAdd }) : ''}
+          ${on ? switchRow({ id: 'sms-notify', iconName: 'bell-ringing', color: 'red', title: 'Notify Me', checked: sms.notify }) : ''}
+          ${sms.pending.length ? row({ id: 'sms-review', iconName: 'tray', color: 'purple', title: 'Waiting to Check', value: String(sms.pending.length) }) : ''}
+          ${on ? row({ id: 'sms-check', iconName: 'arrows-clockwise', color: 'blue', title: 'Check Messages Now', chevron: false }) : ''}
+          ${row({ id: 'sms-paste', iconName: 'clipboard-text', color: 'teal', title: 'Paste a Bank Message' })}
+          ${!native.isApp ? row({ id: 'sms-iphone', iconName: 'device-mobile', color: 'gray', title: 'iPhone Automation' }) : ''}
+          ${learned ? row({ id: 'sms-learned', iconName: 'sparkle', color: 'indigo', title: 'Learned', value: String(Object.keys(sms.payees).length || '') }) : ''}
+        </div>
+        <div class="section-footer">${footer}</div>
+      </div>
+`;
+  }
+
   root.addEventListener('click', e => {
     const target = e.target.closest('[data-go]');
     if (!target) return;
@@ -113,6 +153,11 @@ ${showInstall ? `
       import: importCSV,
       erase: eraseAll,
       about: countAboutTap,
+      'sms-check': () => checkMessages({ quiet: false }),
+      'sms-review': openReview,
+      'sms-paste': openPaste,
+      'sms-learned': openLearned,
+      'sms-iphone': openIphoneSetup,
     };
     if (actions[go]) actions[go]();
   });
@@ -144,6 +189,20 @@ ${showInstall ? `
         toast(`Reminder set for ${timeLabel(reminder.hour, reminder.minute)} every day`, { iconName: 'bell' });
       }
       store.setSetting('reminder', reminder);
+    } else if (input.dataset.switch === 'sms') {
+      if (input.checked) {
+        if (!(await turnOnMessages())) {
+          input.checked = false;
+          render();
+        }
+      } else {
+        turnOffMessages();
+      }
+    } else if (input.dataset.switch === 'sms-auto') {
+      store.setSms({ autoAdd: input.checked });
+      if (input.checked) toast('Bank transactions will be added as they arrive', { iconName: 'lightning' });
+    } else if (input.dataset.switch === 'sms-notify') {
+      if (!(await setNotify(input.checked))) input.checked = false;
     }
   });
 

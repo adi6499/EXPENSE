@@ -31,7 +31,21 @@ function headersFor(urlPath) {
 }
 
 createServer(async (req, res) => {
-  const urlPath = new URL(req.url, 'http://x').pathname;
+  const url = new URL(req.url, 'http://x');
+  const urlPath = url.pathname;
+  // Test only: ?fakenative pretends to be the Android app (see tools/fake-native.js)
+  if (urlPath === '/__fake-native.js') {
+    res.writeHead(200, { 'Content-Type': types['.js'], 'Cache-Control': 'no-store' });
+    res.end(await readFile(join(project, 'tools', 'fake-native.js')));
+    return;
+  }
+  if (url.searchParams.has('fakenative') && (urlPath === '/' || urlPath === '/index.html')) {
+    const html = (await readFile(join(root, 'index.html'), 'utf8'))
+      .replace('<meta charset="utf-8">', '<meta charset="utf-8">\n  <script src="/__fake-native.js"></script>');
+    res.writeHead(200, { 'Content-Type': types['.html'], 'Cache-Control': 'no-store', ...headersFor(urlPath) });
+    res.end(html);
+    return;
+  }
   const path = normalize(decodeURIComponent(urlPath)).replace(/^([/\\])+/, '');
   const file = join(root, path || 'index.html');
   if (!file.startsWith(root)) {

@@ -138,4 +138,53 @@ export const native = {
     if (bridge) return request('setReminder', enabled, hour, minute);
     return Promise.resolve({ ok: true });
   },
+
+  // ---- Bank text messages (Android only)
+
+  /** True when this phone can read text messages (the website and older app versions can't). */
+  canReadSms() {
+    return !!(bridge && bridge.smsStatus && bridge.smsStatus() !== 'unavailable');
+  },
+
+  /** 'granted' | 'denied' | 'unavailable' */
+  smsStatus() {
+    if (!bridge || !bridge.smsStatus) return 'unavailable';
+    return bridge.smsStatus();
+  },
+
+  /** Shows Android's "Allow Expenses to read SMS?" Resolves { ok, blocked }. */
+  requestSms() {
+    if (bridge && bridge.requestSms) return request('requestSms');
+    return Promise.resolve({ ok: false });
+  },
+
+  /** Text messages newer than since (ms). Resolves { ok, messages: [{ id, address, body, date }] }. */
+  readSms(since) {
+    if (bridge && bridge.readSms) return request('readSms', String(Math.max(0, Math.floor(since || 0))));
+    return Promise.resolve({ ok: false, messages: [] });
+  },
+
+  /** Tells the phone whether to show a notification when a bank message arrives. */
+  setSmsOptions(enabled, notify) {
+    if (bridge && bridge.setSmsOptions) {
+      try { bridge.setSmsOptions(!!enabled, !!notify); } catch { /* older app */ }
+    }
+  },
+
+  /** Android 13+: asks to allow notifications. Resolves { ok }. */
+  requestNotifications() {
+    if (bridge && bridge.requestNotifications) return request('requestNotifications');
+    return Promise.resolve({ ok: true });
+  },
+
+  /** Opens this app's page in the phone's Settings (to turn a permission back on). */
+  openAppSettings() {
+    if (bridge && bridge.openAppSettings) bridge.openAppSettings();
+  },
+
+  /** Text shared to the app from another app (e.g. a bank message from Messages), once. */
+  consumeSharedText() {
+    if (bridge && bridge.consumeSharedText) return bridge.consumeSharedText();
+    return '';
+  },
 };

@@ -4,6 +4,7 @@ import * as L from './logic.js';
 import { esc, icon, tile, bindSwipeRows, toast } from './ui.js';
 import { ring, stackBar } from './charts.js';
 import { txRow } from './rows.js';
+import { messagesCardHTML, bindFindingRows, onRowTap, onRowDelete } from './messages.js';
 
 export function createHome(root, { openEditor, goTo, openBudgets }) {
   function render() {
@@ -24,6 +25,7 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
             <div><button class="btn" data-act="add">${icon('plus')} Add your first expense</button></div>
           </div>
         </div>
+        ${messagesCardHTML()}
         ${st.budgets.monthly ? '' : budgetPrompt()}`;
       return;
     }
@@ -86,6 +88,8 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
         <div class="stat"><div class="stat-label">Daily avg</div><div class="stat-value">${esc(store.money(dailyAvg))}</div></div>
       </div>
 
+      ${messagesCardHTML()}
+
       ${top.length ? `
       <div class="card" data-act="insights" role="button">
         <div class="card-label" style="justify-content:space-between"><span>Where it went</span><span class="link" style="font-size:15px;font-weight:500">Insights ${icon('caret-right')}</span></div>
@@ -143,6 +147,7 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
     </div>`;
   }
 
+  bindFindingRows(root);
   root.addEventListener('click', e => {
     const act = e.target.closest('[data-act]');
     if (!act) return;
@@ -155,10 +160,12 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
 
   bindSwipeRows(root, {
     onTap: id => {
+      if (onRowTap(id)) return;
       const tx = store.state.transactions.find(t => t.id === id);
       if (tx) openEditor(tx);
     },
     onDelete: id => {
+      if (onRowDelete(id)) return;
       const removed = store.deleteTransaction(id);
       if (removed) toast('Transaction deleted', { actionText: 'Undo', duration: 6000, onAction: () => store.restoreTransaction(removed) });
     },

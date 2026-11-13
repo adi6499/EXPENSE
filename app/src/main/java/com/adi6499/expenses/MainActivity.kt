@@ -4,9 +4,13 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Telephony
 import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -37,6 +41,8 @@ class MainActivity : ComponentActivity() {
     @Volatile var pageReady = false
     /** An action (e.g. "add" from the launcher shortcut or reminder) waiting for the web app to start. */
     @Volatile var pendingAction: String? = null
+    /** A bank message shared to the app before the web app had started. */
+    @Volatile var pendingSharedText: String? = null
 
     // System bar sizes in CSS pixels, pushed to the web app as --safe-top / --safe-bottom
     @Volatile var insetTop = 0f
@@ -97,6 +103,40 @@ class MainActivity : ComponentActivity() {
         val id = pendingFileId ?: return@registerForActivityResult
         pendingFileId = null
         resolve(id, JSONObject().put("ok", granted))
+    }
+
+    val smsPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        val id = pendingFileId ?: return@registerForActivityResult
+        pendingFileId = null
+        val granted = BankSms.isGranted(this)
+        // Denied, and Android will not ask again: only the phone's Settings can turn it on now
+        val blocked = !granted && !shouldShowRequestPermissionRationale(android.Manifest.permission.READ_SMS)
+        resolve(id, JSONObject().put("ok", granted).put("blocked", blocked))
+        updateSmsWatch()
+    }
+
+    // While the app is open, a new SMS refreshes the list straight away
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val smsPing = Runnable { callJs("window.__onSms && window.__onSms()") }
+    private var smsWatching = false
+    private val smsObserver = object : ContentObserver(mainHandler) {
+        override fun onChange(selfChange: Boolean) {
+            mainHandler.removeCallbacks(smsPing)
+            mainHandler.postDelayed(smsPing, 1500)
+        }
+    }
+
+    /** Watches the SMS inbox while the app is on screen and reading bank SMS is on. */
+    fun updateSmsWatch() {
+        val want = inForeground && BankSms.isEnabled(this) && BankSms.isGranted(this)
+        if (want == smsWatching) return
+        try {
+            if (want) contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, smsObserver)
+            else contentResolver.unregisterContentObserver(smsObserver)
+            smsWatching = want
+        } catch (_: Exception) {
+            smsWatching = false
+        }
     }
 
     fun startFileRequest(id: String, exportText: String? = null) {
@@ -200,6 +240,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readLaunchAction(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND) {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.take(2000)
+            intent.removeExtra(Intent.EXTRA_TEXT) // not again if the screen is rebuilt
+            if (text.isNullOrBlank()) return
+            if (pageReady) callJs("window.__onSharedText && window.__onSharedText(${JSONObject.quote(text)})")
+            else pendingSharedText = text
+            return
+        }
         val action = if (intent?.data?.scheme == "expenses") intent.data?.host else intent?.getStringExtra(EXTRA_ACTION)
         if (action.isNullOrBlank()) return
         if (pageReady) {
@@ -211,11 +259,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        inForeground = true
+        BankSms.clearNotification(this)
+        updateSmsWatch()
         callJs("window.__onResume && window.__onResume()")
     }
 
     override fun onPause() {
         super.onPause()
+        inForeground = false
+        updateSmsWatch()
         callJs("window.__onPause && window.__onPause()")
     }
 
@@ -263,5 +316,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val APP_HOST = "appassets.androidplatform.net"
         const val EXTRA_ACTION = "action"
+        /** True while Expenses is on screen (then a new bank SMS needs no notification). */
+        @Volatile var inForeground = false
     }
 }
