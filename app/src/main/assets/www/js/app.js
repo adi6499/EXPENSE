@@ -13,6 +13,7 @@ import { openBudgets } from './manage.js';
 import { showOnboarding } from './onboarding.js';
 import { checkMessages, openReview, addFromSharedText, syncPhone, takeMessageText } from './messages.js';
 import { syncBillReminders, openBills } from './bills.js';
+import { checkEmails } from './email.js';
 import { nav } from './nav.js';
 
 const TAB_ICONS = { home: 'house', activity: 'list-bullets', insights: 'chart-pie-slice', settings: 'gear-six' };
@@ -30,10 +31,16 @@ function setInsets(top, bottom) {
 }
 window.__setInsets = setInsets;
 
+const TAB_ORDER = { home: 0, activity: 1, insights: 3, settings: 4 }; // 2 is the add button
+
 function applyTheme() {
   const mode = store.state.settings.appearance;
   const dark = mode === 'dark' || (mode === 'auto' && native.isSystemDark());
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  // Liquid Glass (on unless turned off); the edge lens only where the browser can draw it
+  const html = document.documentElement;
+  html.classList.toggle('glass', store.state.settings.glass !== false);
+  html.classList.toggle('lens', /Chrome\/\d/.test(navigator.userAgent));
   native.setAppearance(dark);
   const themeColor = $('#theme-color');
   if (themeColor) themeColor.content = dark ? '#000000' : '#f2f2f7';
@@ -47,6 +54,7 @@ function goTo(tab) {
     return;
   }
   activeTab = tab;
+  $('.tabbar').style.setProperty('--tab-x', TAB_ORDER[tab]);
   $$('.tab-page').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
   $$('.tab').forEach(b => {
     const on = b.dataset.tab === tab;
@@ -143,6 +151,7 @@ function whenUnlocked(fn) {
 function readMessages(thenShow = false) {
   whenUnlocked(async () => {
     await checkMessages();
+    await checkEmails();
     if (!thenShow) return;
     if (store.state.sms.pending.length) openReview();
     else goTo('home');

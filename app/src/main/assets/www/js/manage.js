@@ -385,7 +385,7 @@ export function openRepeating() {
 
 // ---------- Simple choice pages
 
-function choicePage({ title, options, current, onPick, footer = '' }) {
+function choicePage({ title, options, current, onPick, footer = '', after = () => '' }) {
   return pushPage({
     title,
     backText: 'Settings',
@@ -401,7 +401,7 @@ function choicePage({ title, options, current, onPick, footer = '' }) {
             </button>`).join('')}
           </div>
           ${footer ? `<div class="section-footer">${esc(footer)}</div>` : ''}
-        </div>`;
+        </div>${after()}`;
       if (!page._bound) {
         page._bound = true;
         content.addEventListener('click', e => {
@@ -427,7 +427,7 @@ export function openCurrency() {
 }
 
 export function openAppearance(onChange) {
-  choicePage({
+  const page = choicePage({
     title: 'Appearance',
     options: [
       { value: 'auto', label: 'Automatic', sub: 'Follows your phone’s light / dark setting' },
@@ -439,6 +439,20 @@ export function openAppearance(onChange) {
       store.setSetting('appearance', value);
       onChange();
     },
+    after: () => `
+      <div class="section">
+        <div class="list">
+          <label class="row">${tile('drop', 'cyan')}<div class="row-main"><span class="row-title" style="flex:1">Liquid Glass</span>
+          <span class="switch"><input type="checkbox" data-glass ${store.state.settings.glass !== false ? 'checked' : ''}><span></span></span></div></label>
+        </div>
+        <div class="section-footer">See-through glass for the tab bar, buttons and pop-ups. Turn it off for a plain look (and a little less work for older phones).</div>
+      </div>`,
+  });
+  page.content.addEventListener('change', e => {
+    if (!e.target.closest('[data-glass]')) return;
+    haptic('selection');
+    store.setSetting('glass', e.target.checked);
+    onChange();
   });
 }
 

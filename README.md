@@ -33,6 +33,12 @@ install it and start adding expenses. Everything is saved on the phone.
 - **Monthly picture**: your month in one image (spent, income, kept, where it went) to share on WhatsApp — offered in
   the first week of each month, and from Insights for any month.
 - **Home-screen widget**: today and this month at a glance, with Speak and Add buttons.
+- **Bank emails** (iPhone, website and Android): Settings → Bank Messages → Bank Emails walks you through putting a
+  small read-only script into your own Google account (js/email-script.js). Expenses asks it for new bank alert
+  emails and reads them like bank SMS; the same payment from an SMS and an email is added once. Uses the internet
+  only to reach your own script.
+- **Liquid Glass**: the tab bar floats as a glass island with a gliding selection pill; the top bar, pop-ups, menus,
+  toasts and the add button are glass too. Settings → Appearance → Liquid Glass turns it off.
 - **Add in seconds**: big number pad, category strip, notes that remember (typing "Swiggy" picks Food & UPI again)
 - **Summary**: spent this month, budget ring, income and balance, today / this week / daily average, where the money went
 - **Transactions**: search, filter by period / category / account, grouped by day, swipe left to delete (with Undo)

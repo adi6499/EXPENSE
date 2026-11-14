@@ -87,9 +87,12 @@ export function createDefaultState() {
       reminder: { enabled: false, hour: 21, minute: 0 },
       onboarded: false,
       lastAccountId: 'upi',
+      glass: true,        // Liquid Glass look for the bars, buttons and pop-ups
       activeTag: '',      // a trip or event that new spending is tagged with until it ends
       dismissed: {},      // heads-up alerts already closed
       summarySeen: '',    // 'YYYY-MM' whose monthly picture was already shown
+      // Bank emails: the person's own Google script (see email.js)
+      email: { url: '', key: '', enabled: false, lastDate: 0, lastCheck: 0 },
     },
   };
 }
@@ -119,6 +122,7 @@ export function normalizeState(raw) {
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
   if (!state.settings.dismissed || typeof state.settings.dismissed !== 'object') state.settings.dismissed = {};
   if (typeof state.settings.activeTag !== 'string') state.settings.activeTag = '';
+  state.settings.email = { ...base.settings.email, ...(state.settings.email && typeof state.settings.email === 'object' ? state.settings.email : {}) };
   state.budgets.categories = state.budgets.categories || {};
   state.transactions = state.transactions
     .filter(t => t && typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && Number.isFinite(t.amount))

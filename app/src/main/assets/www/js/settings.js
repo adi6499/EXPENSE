@@ -8,6 +8,7 @@ import {
   canReadMessages, turnOn as turnOnMessages, turnOff as turnOffMessages, setNotify, checkMessages, openReview,
   openPaste, openLearned, openIphoneSetup,
 } from './messages.js';
+import { openEmailSetup, emailStatusText } from './email.js';
 
 const APPEARANCE_LABELS = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 
@@ -125,6 +126,7 @@ ${messagesSection(st.sms)}
           ${on ? switchRow({ id: 'sms-notify', iconName: 'bell-ringing', color: 'red', title: 'Notify Me', checked: sms.notify }) : ''}
           ${sms.pending.length ? row({ id: 'sms-review', iconName: 'tray', color: 'purple', title: 'Waiting to Check', value: String(sms.pending.length) }) : ''}
           ${on ? row({ id: 'sms-check', iconName: 'arrows-clockwise', color: 'blue', title: 'Check Messages Now', chevron: false }) : ''}
+          ${row({ id: 'sms-email', iconName: 'envelope-simple', color: 'blue', title: 'Bank Emails', value: emailStatusText() })}
           ${row({ id: 'sms-paste', iconName: 'clipboard-text', color: 'teal', title: 'Paste a Bank Message' })}
           ${!native.isApp ? row({ id: 'sms-iphone', iconName: 'device-mobile', color: 'gray', title: 'iPhone Automation' }) : ''}
           ${learned ? row({ id: 'sms-learned', iconName: 'sparkle', color: 'indigo', title: 'Learned', value: String(Object.keys(sms.payees).length || '') }) : ''}
@@ -156,6 +158,7 @@ ${messagesSection(st.sms)}
       'sms-check': () => checkMessages({ quiet: false }),
       'sms-review': openReview,
       'sms-paste': openPaste,
+      'sms-email': openEmailSetup,
       'sms-learned': openLearned,
       'sms-iphone': openIphoneSetup,
     };

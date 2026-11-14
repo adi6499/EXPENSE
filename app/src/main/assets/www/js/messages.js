@@ -53,30 +53,38 @@ export function checkMessages({ quiet = true } = {}) {
       if (!quiet) alert({ title: 'Couldn’t read messages', message: result.error || 'Please try again.' });
       return none;
     }
-    let newest = since;
-    const findings = [];
-    const extras = { balances: [], bills: [], paid: [] };
-    for (const m of result.messages || []) {
-      newest = Math.max(newest, Number(m.date) || 0);
-      try {
-        const f = S.parseBankSms(m);
-        if (f) findings.push(f);
-        const balance = S.parseBalance(m);
-        if (balance) extras.balances.push(balance);
-        const bill = f ? null : S.parseBill(m);
-        if (bill) extras.bills.push(bill);
-        const paid = S.parseBillPaid(m);
-        if (paid) extras.paid.push(paid);
-      } catch (err) {
-        console.warn('Skipped a message that could not be read', err);
-      }
-    }
-    store.takeMessageExtras(extras);
-    const outcome = store.takeFindings(findings, newest);
-    announce(outcome, quiet);
-    return outcome;
+    const newest = (result.messages || []).reduce((max, m) => Math.max(max, Number(m.date) || 0), since);
+    return takeBankMessages(result.messages || [], { newestSms: newest, quiet });
   })().finally(() => { checking = null; });
   return checking;
+}
+
+/**
+ * Reads bank messages — SMS from the phone, or emails ({ bank, via: 'email' } on each) — and adds
+ * the transactions, balances and bills they mention. newestSms: moves the "SMS read up to" mark.
+ */
+export function takeBankMessages(messages, { newestSms = 0, quiet = true } = {}) {
+  const findings = [];
+  const extras = { balances: [], bills: [], paid: [] };
+  for (const m of messages) {
+    try {
+      const options = m.bank || m.via ? { bank: m.bank || '', via: m.via } : {};
+      const f = S.parseBankSms(m, options);
+      if (f) findings.push(f);
+      const balance = S.parseBalance(m, options);
+      if (balance) extras.balances.push(balance);
+      const bill = f ? null : S.parseBill(m, options);
+      if (bill) extras.bills.push(bill);
+      const paid = S.parseBillPaid(m, options);
+      if (paid) extras.paid.push(paid);
+    } catch (err) {
+      console.warn('Skipped a message that could not be read', err);
+    }
+  }
+  store.takeMessageExtras(extras);
+  const outcome = store.takeFindings(findings, newestSms);
+  announce(outcome, quiet);
+  return outcome;
 }
 
 function announce({ added, queued, skipped = 0 }, quiet) {

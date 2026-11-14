@@ -2,7 +2,7 @@
 // out the amount, whether money went out or came in, the bank, the account's last digits and who
 // it was paid to. Also guesses a category and account for it.
 // Pure functions only: no DOM, no storage. Unit-tested in tests/sms.test.js.
-import { toISO, addDays, parseFlexibleDate } from './logic.js';
+import { toISO, addDays, daysBetween, parseFlexibleDate } from './logic.js';
 
 // ---------- Senders
 
@@ -116,7 +116,7 @@ const NOT_A_TRANSACTION = [
 
 // 'A/c XX1234', 'A/cX1234', 'Acct XX123', 'card ending 1234', 'a/c no. XXXXXXXX1234', 'card ** 12345'
 const ACCOUNT_DIGITS = /\b(?:a\/?c|acct|account|card|ac)(?![a-wyz])\.?\s*(?:no\.?|number|num)?\s*(?:ending(?: with| in)?)?\s*[:-]?\s*[x*•.\s]*?(\d{3,6})\b/i;
-const REFERENCE = /\b(?:upi(?:\s*ref(?:erence)?)?(?:\s*no)?|ref(?:erence)?\.?\s*(?:no|number|#)?|refno|utr|rrn|imps ref(?:\s*no)?|txn\s*(?:id|no))\b[\s:.#-]*([0-9]{6,})/i;
+const REFERENCE = /\b(?:upi(?:\s*ref(?:erence)?)?(?:\s*no)?|ref(?:erence)?\.?\s*(?:no|number|#)?|refno|utr|rrn|imps ref(?:\s*no)?|txn\s*(?:id|no))\b[\s:.#-]*(?:is\s*)?([0-9]{6,})/i;
 const UPI_INFO = /\bUPI[/-](?:P2[AM]|DR|CR)?[/-]?(\d{6,})[/-]([A-Za-z][^/|]{1,40})/i;
 
 // Who the money went to or came from
@@ -126,7 +126,9 @@ const PAID_TO = new RegExp(String.raw`\b(trf to|transfer(?:red)? to|paid to|sent
 const RECEIVED_FROM = new RegExp(String.raw`\b(from vpa|received from|from|by|towards)\s+${NAME}${STOP}`, 'gi');
 const ICICI_STYLE = new RegExp(String.raw`;\s*${NAME}\s+credited\b`, 'i');
 const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';
-const NOT_A_NAME = new RegExp(String.raw`^(?:your|ur|you|a\/?c|ac|acct|account|card|the|upi|rs|inr|mobile|date|beneficiary|self|net ?banking|imps|neft|rtgs|ref|xx|atm|vpa)(?![a-z])|\b(?:a\/?c|acct|account|card|ending|linked|wallet balance)\b|\d{1,2}[-/ ]?(?:${MONTHS})|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|^[x*]+\d`, 'i');
+const NOT_A_NAME = new RegExp(String.raw`^(?:your|ur|you|a\/?c|ac|acct|account|card|the|upi|rs|inr|mobile|date|beneficiary|self|net ?banking|imps|neft|rtgs|ref|xx|atm|vpa)(?![a-z])|\b(?:a\/?c|acct|account|card|ending|linked|wallet balance)\b|\d{1,2}[-/ ]?(?:${MONTHS})|^(?:${MONTHS})[a-z]*\.?\s+\d{1,2}\b|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|^[x*]+\d`, 'i');
+// Card alerts by email: "… at 10:20:30. Info: AMAZON."
+const INFO_NAME = /\binfo\s*[:.-]\s*([A-Za-z][A-Za-z0-9&'_*@./ -]{1,40}?)(?=\s*(?:[.,;|]\s|[.,;|]?$|\bon\b|\bat\b))/i;
 
 function cleanText(body) {
   return String(body || '')
@@ -225,6 +227,11 @@ export function findCounterparty(text, type) {
     if (name && !NOT_A_NAME.test(upi[2])) return name;
   }
   if (type === 'expense') {
+    const info = text.match(INFO_NAME);
+    if (info && !NOT_A_NAME.test(info[1])) {
+      const name = prettyName(info[1]);
+      if (name) return name;
+    }
     const icici = text.match(ICICI_STYLE);
     if (icici && !NOT_A_NAME.test(icici[1])) {
       const name = prettyName(icici[1]);
@@ -262,12 +269,14 @@ export function parseBankSms(message, options = {}) {
   const amount = findAmount(text);
   if (!amount || amount > 1e11) return null;
 
-  const bank = bankName(address);
+  const bank = options.bank || bankName(address);
   const digits = text.match(ACCOUNT_DIGITS);
   const ref = (text.match(REFERENCE) || text.match(UPI_INFO) || [])[1] || '';
   const mentionsAccount = !!digits || !!ref || /\bupi\b|\bvpa\b|\bwallet\b|\ba\/c\b|\bacct\b/i.test(text);
   // A shop's "payment received for your order" isn't from your bank: skip unless it names an account
   if (!options.trusted && !bank && !mentionsAccount) return null;
+  // An email that isn't from a bank (a shop's order mail) only counts if it names your account or card
+  if (options.via === 'email' && !bank && !digits) return null;
 
   const kind = kindOf(text, address);
   let merchant = findCounterparty(text, type);
@@ -287,6 +296,7 @@ export function parseBankSms(message, options = {}) {
     address: String(address || ''),
     body: String(body).trim().slice(0, 500),
   };
+  if (options.via) finding.via = options.via;
   finding.transfer = transferKind(finding);
   if (finding.transfer === 'card' && !finding.merchant) finding.merchant = 'Card bill payment';
   return finding;
@@ -458,7 +468,13 @@ export function decide(finding, state) {
 export function toTransaction(finding, state) {
   const p = payeeOf(finding, state);
   const key = payeeKey(finding.merchant);
-  const sms = { id: finding.id, ...(finding.ref ? { ref: finding.ref } : {}), ...(key ? { payee: key } : {}) };
+  const sms = {
+    id: finding.id,
+    ...(finding.ref ? { ref: finding.ref } : {}),
+    ...(key ? { payee: key } : {}),
+    ...(finding.last4 ? { last4: finding.last4 } : {}),
+    ...(finding.via ? { via: finding.via } : {}),
+  };
   if (finding.transfer) {
     // ATM cash or a card bill: money moves from the bank to cash / the card, nothing is spent
     const from = (state.sms && state.sms.accounts && state.sms.accounts[`${finding.bank}|${finding.last4}`]) || findAccountFor(state, 'bank', /bank/i);
@@ -488,8 +504,20 @@ export function alreadyHave(finding, state) {
   const pending = (state.sms && state.sms.pending) || [];
   if (pending.some(p => p.id === finding.id)) return true;
   if (finding.ref && pending.some(p => p.ref === finding.ref && p.amount === finding.amount && p.type === finding.type)) return true;
+  if (pending.some(p => sameFromOtherSource(finding, p, p))) return true;
   return state.transactions.some(t => t.sms && (t.sms.id === finding.id ||
-    (finding.ref && t.sms.ref === finding.ref && t.amount === finding.amount && t.type === finding.type)));
+    (finding.ref && t.sms.ref === finding.ref && t.amount === finding.amount && t.type === finding.type) ||
+    sameFromOtherSource(finding, t, t.sms)));
+}
+
+/** The bank sent both an SMS and an email about one payment: same amount and kind, within a day, same card. */
+function sameFromOtherSource(finding, other, meta) {
+  if ((finding.via || 'sms') === (meta.via || 'sms')) return false;
+  if (other.amount !== finding.amount) return false;
+  const otherType = other.type === 'transfer' ? 'expense' : other.type;
+  if (otherType !== finding.type) return false;
+  if (Math.abs(daysBetween(other.date, finding.date)) > 1) return false;
+  return !(finding.last4 && meta.last4 && finding.last4 !== meta.last4);
 }
 
 /** Looks like something typed in by hand already: same amount and type within a day. */
@@ -544,7 +572,7 @@ function findBalance(text) {
 }
 
 /** The balance (or a card's available limit) a message reports: { key, bank, last4, amount, kind, time } or null. */
-export function parseBalance(message) {
+export function parseBalance(message, options = {}) {
   const { address = '', body = '', date = Date.now() } = message || {};
   if (!body || isPersonalNumber(address) || /-P$/i.test(String(address).trim())) return null;
   const text = cleanText(body);
@@ -553,7 +581,7 @@ export function parseBalance(message) {
   if (!m) return null;
   const amount = Math.round(parseFloat(m.value.replace(/,/g, '')) * 100);
   if (!isFinite(amount)) return null;
-  const bank = bankName(address);
+  const bank = options.bank || bankName(address);
   const digits = text.match(ACCOUNT_DIGITS);
   if (!bank && !digits) return null;
   const header = senderHeader(address) || '';
@@ -593,7 +621,7 @@ export function messageDate(token, sentAt = Date.now()) {
  * A bill or an automatic payment coming up: { key, name, amount, minDue, dueDate, autopay } or null.
  * Card statements, phone/electricity bills, and "Rs 199 will be debited on 15-Nov for NETFLIX".
  */
-export function parseBill(message) {
+export function parseBill(message, options = {}) {
   const { address = '', body = '', date = Date.now() } = message || {};
   if (!body || isPersonalNumber(address)) return null;
   const text = cleanText(body);
@@ -610,13 +638,13 @@ export function parseBill(message) {
   if (!amount) return null;
   const minDue = min ? Math.round(parseFloat(min[1].replace(/,/g, '')) * 100) : 0;
   if (minDue && amount === minDue && total === null) return null; // only a minimum: not enough to go on
-  const bank = bankName(address);
+  const bank = options.bank || bankName(address);
   const digits = text.match(ACCOUNT_DIGITS);
   const last4 = digits ? digits[1] : '';
   let name = '';
   const forWhat = text.match(/\bfor\s+([A-Za-z][A-Za-z0-9&' .-]{1,30}?)(?=\s*(?:\b(?:mandate|subscription|from|on|via|using|ref|a\/c|ac|account)\b|[.,;|]|$))/i);
   const yourBill = text.match(/\byour\s+([A-Za-z][A-Za-z0-9&' -]{1,30}?)\s+(?:bill|postpaid|statement|dues|emi|premium)\b/i);
-  if (/\bcard\b/i.test(text) && (bank || last4)) name = `${(bank || 'Card').replace(/ Bank$/, '')} card${last4 ? ` ••${last4}` : ''}`;
+  if (/\bcard\b/i.test(text) && (bank || last4)) name = `${(bank || 'Card').replace(/ Bank$/, '')}${/card$/i.test(bank) ? '' : ' card'}${last4 ? ` ••${last4}` : ''}`;
   else if (autopay && forWhat) name = prettyName(forWhat[1]);
   else if (yourBill) name = prettyName(yourBill[1].replace(/^(?:a\/c|account)\s+/i, ''));
   if (!name) name = bank ? `${bank} bill` : prettyName(senderHeader(address) || '') || 'Bill';
@@ -625,16 +653,50 @@ export function parseBill(message) {
 }
 
 /** "Payment of Rs 8,200 received towards your SBI Card ending 1234": { key, amount } or null. */
-export function parseBillPaid(message) {
+export function parseBillPaid(message, options = {}) {
   const { address = '', body = '' } = message || {};
   if (!body || isPersonalNumber(address)) return null;
   const text = cleanText(body);
   if (!/\bpayment\b.{0,60}\b(?:received|credited|successful|processed)\b|\breceived (?:your |a |the )?payment\b|\bbill\b.{0,40}\b(?:has been )?paid\b/i.test(text)) return null;
   const amount = findAmount(text);
   if (!amount) return null;
-  const bank = bankName(address);
+  const bank = options.bank || bankName(address);
   const digits = text.match(ACCOUNT_DIGITS);
   const last4 = digits ? digits[1] : '';
   if (!bank && !last4) return null;
   return { key: `${(bank || '').toLowerCase()}|${last4}`, bank, last4, amount };
+}
+
+// ---------- Bank emails (read by a script in your own Google account; see email.js)
+
+const EMAIL_BANKS = [
+  [/sbicard/, 'SBI Card'], [/hdfcbank/, 'HDFC Bank'], [/icicibank/, 'ICICI Bank'], [/axisbank/, 'Axis Bank'],
+  [/(?:^|\.)sbi\.co\.in$|onlinesbi|\.sbi$/, 'SBI'], [/kotak/, 'Kotak'], [/yesbank/, 'Yes Bank'],
+  [/idfcfirstbank|idfcbank/, 'IDFC First'], [/indusind/, 'IndusInd'], [/rblbank/, 'RBL Bank'], [/federalbank/, 'Federal Bank'],
+  [/bobcard/, 'BoB Card'], [/bankofbaroda/, 'Bank of Baroda'], [/pnb/, 'PNB'], [/canarabank/, 'Canara Bank'],
+  [/unionbank/, 'Union Bank'], [/americanexpress|aexp/, 'Amex'], [/aubank/, 'AU Bank'], [/hsbc/, 'HSBC'],
+  [/standardchartered|(?:^|\.)sc\.com$/, 'Standard Chartered'], [/citi/, 'Citi'], [/dbs/, 'DBS'], [/paytm/, 'Paytm'],
+  [/onecard|fplabs/, 'OneCard'], [/jupiter/, 'Jupiter'], [/sliceit|slicepay/, 'Slice'], [/bankofindia|bankofindia/, 'Bank of India'],
+  [/idbi/, 'IDBI Bank'], [/ucobank/, 'UCO Bank'], [/indianbank/, 'Indian Bank'], [/centralbank/, 'Central Bank'],
+  [/iob\.in|iobnet/, 'IOB'], [/kvb/, 'KVB'], [/southindianbank|sib\.co\.in/, 'South Indian Bank'], [/equitas/, 'Equitas'],
+  [/bandhan/, 'Bandhan Bank'], [/federal/, 'Federal Bank'], [/aupay/, 'AU Bank'],
+];
+
+/** "HDFC Bank InstaAlerts <alerts@hdfcbank.net>" → 'HDFC Bank' ('' when it isn't a bank we know). */
+export function bankFromEmail(from) {
+  const m = String(from || '').toLowerCase().match(/@([a-z0-9.-]+)/);
+  if (!m) return '';
+  for (const [re, name] of EMAIL_BANKS) if (re.test(m[1])) return name;
+  return '';
+}
+
+// Where a bank email's useful part ends: the safety notes and sign-off underneath
+const EMAIL_FOOTER = /\b(?:never share|do not share|don't share|this is (?:a|an) (?:system|computer|auto(?:matically)?)[- ]generated|disclaimer|for any (?:queries|query|assistance|clarification)|please do not reply|warm regards|regards,|thank you for banking|to unsubscribe|if (?:you have )?not (?:done|initiated|made|authori[sz]ed) (?:this|by you))/i;
+
+/** The part of a bank email worth reading: the subject and the message before the footer. */
+export function emailText(subject, body) {
+  let text = String(body || '').replace(/\r/g, '');
+  const cut = text.search(EMAIL_FOOTER);
+  if (cut > 40) text = text.slice(0, cut);
+  return `${String(subject || '').trim()}\n${text.trim()}`.slice(0, 700);
 }

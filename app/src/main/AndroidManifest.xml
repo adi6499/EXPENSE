@@ -12,6 +12,9 @@
     <!-- Still installs on tablets without a SIM; reading SMS is simply unavailable there -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- Only used for Bank Emails: asking your own Google script for new bank emails -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- To see whether the phone has voice typing (for "Speak") -->
     <queries>
         <intent>
