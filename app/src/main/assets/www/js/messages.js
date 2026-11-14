@@ -104,12 +104,19 @@ export async function turnOn() {
     if (!result.ok) {
       const open = await alert({
         title: 'SMS access is off',
+        // Android 15+ hard-restricts SMS for apps not installed from the Play Store: the
+        // permission can only be given in App info after "Allow restricted settings"
         message: result.blocked
-          ? 'Android won’t ask again. In Settings, open Permissions → SMS and choose Allow.'
+          ? 'Android blocks SMS for apps that aren’t from the Play Store until you allow it once:\n\n'
+            + '1. Tap Open App Info below\n'
+            + '2. Tap ⋮ at the top right → Allow restricted settings\n'
+            + '3. Tap Permissions → SMS → Allow\n'
+            + '4. Come back here and turn on Read Bank SMS'
           : 'Expenses needs SMS access to read your bank’s messages.',
         buttons: result.blocked
-          ? [{ text: 'Cancel', value: false, style: 'cancel' }, { text: 'Open Settings', value: true }]
+          ? [{ text: 'Cancel', value: false, style: 'cancel' }, { text: 'Open App Info', value: true }]
           : [{ text: 'OK', value: false, style: 'cancel' }],
+        steps: !!result.blocked,
       });
       if (open) native.openAppSettings();
       return false;

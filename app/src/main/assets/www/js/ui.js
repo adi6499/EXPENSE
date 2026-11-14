@@ -158,7 +158,7 @@ export function openFormSheet({ title, html, cancelText = 'Cancel', doneText = '
 // ---------- Alerts and action sheets
 
 /** iOS alert. buttons: [{ text, value, style: 'cancel' | 'destructive' | 'default' }]. */
-export function alert({ title, message = '', buttons = [{ text: 'OK', value: true, style: 'cancel' }] }) {
+export function alert({ title, message = '', buttons = [{ text: 'OK', value: true, style: 'cancel' }], steps = false }) {
   return new Promise(resolve => {
     const wrap = document.createElement('div');
     wrap.className = 'alert-wrap';
@@ -167,7 +167,7 @@ export function alert({ title, message = '', buttons = [{ text: 'OK', value: tru
       <div class="alert" role="alertdialog" aria-modal="true">
         <div class="alert-text">
           <h3>${esc(title)}</h3>
-          ${message ? `<p>${esc(message)}</p>` : ''}
+          ${message ? `<p class="${steps ? 'steps-text' : ''}">${esc(message)}</p>` : ''}
         </div>
         <div class="alert-buttons ${stacked ? 'stacked' : ''}">
           ${buttons.map((b, i) => `<button class="${b.style || ''}" data-i="${i}">${esc(b.text)}</button>`).join('')}
