@@ -208,6 +208,12 @@ export function openAccounts() {
     render: (content, page) => {
       const balances = L.accountBalances(store.state.accounts, store.state.transactions);
       const total = [...balances.values()].reduce((a, b) => a + b, 0);
+      // The newest balance a bank message gave for each account (via the bank/card it was linked to)
+      const bankSays = new Map();
+      for (const [key, accountId] of Object.entries(store.state.sms.accounts || {})) {
+        const b = (store.state.sms.balances || {})[key];
+        if (b && b.kind === 'balance' && (!bankSays.has(accountId) || bankSays.get(accountId).time < b.time)) bankSays.set(accountId, b);
+      }
       content.innerHTML = `
         <div class="card" style="margin-top:12px">
           <div class="card-label">${icon('wallet', true)} Total balance</div>
@@ -216,11 +222,18 @@ export function openAccounts() {
         </div>
         <div class="section">
           <div class="list">
-            ${store.state.accounts.map(a => `
+            ${store.state.accounts.map(a => {
+              const bank = bankSays.get(a.id);
+              const differs = bank && bank.amount !== (balances.get(a.id) || 0);
+              return `
               <button class="row tap" data-acc="${esc(a.id)}">${tile(a.icon, a.color)}
-                <div class="row-main"><span class="row-title" style="flex:1">${esc(a.name)}</span>
+                <div class="row-main"><div class="row-text">
+                  <div class="row-title">${esc(a.name)}</div>
+                  ${bank ? `<div class="row-sub">Bank says ${esc(store.money(bank.amount))} · ${esc(L.shortDate(L.toISO(new Date(bank.time))))}${differs ? ' · <span style="color:var(--blue)" data-match="' + esc(a.id) + '">Match</span>' : ' ✓'}</div>` : ''}
+                </div>
                 <span class="row-value" style="color:${balances.get(a.id) < 0 ? 'var(--red)' : 'var(--label-2)'}">${esc(store.money(balances.get(a.id) || 0))}</span>${icon('caret-right')}</div>
-              </button>`).join('')}
+              </button>`;
+            }).join('')}
             <button class="row tap" data-add>${tile('plus', 'blue')}<div class="row-main"><span class="row-title" style="color:var(--blue)">Add Account</span></div></button>
           </div>
           <div class="section-footer">Accounts are where money is paid from — cash, UPI, a bank account or a card.</div>
@@ -228,7 +241,22 @@ export function openAccounts() {
       $$('.ph-caret-right', content).forEach(i => i.classList.add('row-chevron'));
       if (!page._bound) {
         page._bound = true;
-        content.addEventListener('click', e => {
+        content.addEventListener('click', async e => {
+          const match = e.target.closest('[data-match]');
+          if (match) {
+            const id = match.dataset.match;
+            const bank = [...Object.entries(store.state.sms.accounts || {})]
+              .filter(([, acc]) => acc === id).map(([key]) => store.state.sms.balances[key]).filter(Boolean)
+              .sort((x, y) => y.time - x.time)[0];
+            if (!bank) return;
+            const ok = await alert({
+              title: 'Match the bank?',
+              message: `Sets ${store.account(id).name}'s starting balance so it shows ${store.money(bank.amount)}, like your bank's last message. Your transactions don't change.`,
+              buttons: [{ text: 'Cancel', value: false, style: 'cancel' }, { text: 'Match', value: true }],
+            });
+            if (ok) store.matchBalance(id, bank.amount);
+            return;
+          }
           const row = e.target.closest('[data-acc]');
           if (row) openAccountEditor({ account: store.account(row.dataset.acc) });
           if (e.target.closest('[data-add]')) openAccountEditor();

@@ -12,6 +12,13 @@
     <!-- Still installs on tablets without a SIM; reading SMS is simply unavailable there -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- To see whether the phone has voice typing (for "Speak") -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -56,6 +63,23 @@
         <receiver
             android:name=".ReminderReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".BillReminderReceiver"
+            android:exported="false" />
+
+        <!-- Home-screen widget: today and this month, with Speak and Add -->
+        <receiver
+            android:name=".ExpensesWidget"
+            android:exported="false"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
 
         <receiver
             android:name=".BootReceiver"

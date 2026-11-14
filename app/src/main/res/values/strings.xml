@@ -5,4 +5,9 @@
     <string name="shortcut_add_long">Add a new expense</string>
     <string name="reminder_channel">Daily reminder</string>
     <string name="sms_channel">Bank messages</string>
+    <string name="bills_channel">Bill reminders</string>
+    <string name="widget_today">Spent today</string>
+    <string name="widget_speak">Speak an expense</string>
+    <string name="widget_description">Today and this month at a glance, with quick add</string>
+    <string name="shortcut_speak_long">Speak an expense</string>
 </resources>

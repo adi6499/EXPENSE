@@ -187,4 +187,169 @@ export const native = {
     if (bridge && bridge.consumeSharedText) return bridge.consumeSharedText();
     return '';
   },
+
+  // ---- Speaking a transaction
+
+  canListen() {
+    if (bridge) return !!(bridge.canListen && bridge.canListen());
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  },
+
+  /** Listens once. Resolves { ok, text } or { ok: false, error }. */
+  listen() {
+    if (bridge && bridge.listen) return request('listen');
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return Promise.resolve({ ok: false, error: 'This browser can’t listen' });
+    return new Promise(resolve => {
+      const r = new Recognition();
+      r.lang = 'en-IN';
+      r.interimResults = false;
+      r.maxAlternatives = 1;
+      let settled = false;
+      const finish = result => { if (!settled) { settled = true; resolve(result); } };
+      r.onresult = e => finish({ ok: true, text: e.results[0][0].transcript });
+      r.onerror = e => finish({ ok: false, error: e.error === 'not-allowed' ? 'Allow the microphone to speak a transaction' : '' });
+      r.onend = () => finish({ ok: false, error: '' });
+      r.start();
+    });
+  },
+
+  // ---- Bill photos: a JPEG per transaction (Android: app storage; website: IndexedDB)
+
+  /** Lets the person take or pick a photo. Resolves { ok, dataUrl } (a smaller JPEG). */
+  pickPhoto() {
+    if (bridge && bridge.pickPhoto) return request('pickPhoto');
+    return new Promise(resolve => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files && input.files[0];
+        if (!file) return resolve({ ok: false });
+        try {
+          resolve({ ok: true, dataUrl: await shrinkImage(file) });
+        } catch {
+          resolve({ ok: false, error: 'Couldn’t open that picture' });
+        }
+      };
+      input.click();
+    });
+  },
+
+  async savePhoto(id, dataUrl) {
+    if (bridge && bridge.savePhoto) {
+      try { return bridge.savePhoto(id, dataUrl.split(',')[1]); } catch { return false; }
+    }
+    try {
+      const blob = dataUrlToBlob(dataUrl);
+      await photoStore('readwrite', s => s.put(blob, id));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** A URL an <img> can show, or '' when there is no photo. */
+  async photoUrl(id) {
+    if (bridge && bridge.savePhoto) return `https://appassets.androidplatform.net/photos/${encodeURIComponent(id)}.jpg?t=${Date.now()}`;
+    try {
+      const blob = await photoStore('readonly', s => s.get(id));
+      return blob ? URL.createObjectURL(blob) : '';
+    } catch {
+      return '';
+    }
+  },
+
+  deletePhoto(id) {
+    if (bridge && bridge.deletePhoto) { try { bridge.deletePhoto(id); } catch { /* nothing to delete */ } return; }
+    photoStore('readwrite', s => s.delete(id)).catch(() => {});
+  },
+
+  /** Removes photos whose transaction is gone (deleted, or replaced by a restore). */
+  cleanPhotos(keepIds) {
+    if (bridge && bridge.cleanPhotos) { try { bridge.cleanPhotos(JSON.stringify(keepIds)); } catch { /* best effort */ } }
+  },
+
+  // ---- Pictures and reminders
+
+  /** Shares or saves a PNG made in the app (the monthly summary). how: 'share' | 'save'. */
+  async sendImage(how, fileName, dataUrl) {
+    const base64 = dataUrl.split(',')[1];
+    if (bridge && bridge.shareBase64) {
+      return request(how === 'share' ? 'shareBase64' : 'saveBase64', fileName, 'image/png', base64);
+    }
+    const blob = dataUrlToBlob(dataUrl);
+    const file = new File([blob], fileName, { type: 'image/png' });
+    if (how === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: fileName }); return { ok: true }; } catch (err) {
+        if (err && err.name === 'AbortError') return { ok: false, cancelled: true };
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return { ok: true };
+  },
+
+  /** Bill reminders as notifications: [{ id, title, text, at (ms) }]. Android only. */
+  setBillReminders(list) {
+    if (bridge && bridge.setBillReminders) { try { bridge.setBillReminders(JSON.stringify(list)); } catch { /* older app */ } }
+  },
+
+  /** The home-screen widget's numbers. Android only. */
+  updateWidget(today, month, line, zero) {
+    if (bridge && bridge.updateWidget) { try { bridge.updateWidget(today, month, line, zero); } catch { /* older app */ } }
+  },
 };
+
+/** Makes a photo small enough to keep: longest side 1600 px, JPEG. */
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.78));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+    img.src = url;
+  });
+}
+
+let photoDb = null;
+function photoStore(mode, run) {
+  if (!photoDb) {
+    photoDb = new Promise((resolve, reject) => {
+      const open = indexedDB.open('expenses-photos', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('photos');
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+  }
+  return photoDb.then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('photos', mode);
+    const req = run(tx.objectStore('photos'));
+    tx.oncomplete = () => resolve(req && req.result);
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+/** data:image/…;base64,… → Blob (fetch() can't read data: URLs under the site's security policy). */
+function dataUrlToBlob(dataUrl) {
+  const [head, data] = dataUrl.split(',');
+  const type = (head.match(/^data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  const bytes = atob(data);
+  const array = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
+  return new Blob([array], { type });
+}

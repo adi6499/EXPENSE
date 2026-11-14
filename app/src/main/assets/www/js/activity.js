@@ -21,7 +21,7 @@ function presetPeriod(key, today = L.todayISO()) {
 }
 
 export function createActivity(root, { openEditor, filterButton }) {
-  const f = { query: '', type: 'all', period: null, categoryId: null, accountId: null };
+  const f = { query: '', type: 'all', period: null, categoryId: null, accountId: null, tag: null, person: null };
   let limit = PAGE_SIZE;
 
   root.innerHTML = `
@@ -39,12 +39,15 @@ export function createActivity(root, { openEditor, filterButton }) {
       if (f.type !== 'all' && t.type !== f.type) return false;
       if (f.period && (t.date < f.period.start || t.date > f.period.end)) return false;
       if (f.categoryId && t.categoryId !== f.categoryId) return false;
-      if (f.accountId && t.accountId !== f.accountId) return false;
+      if (f.accountId && t.accountId !== f.accountId && t.toAccountId !== f.accountId) return false;
+      if (f.tag && String(t.tag || '').toLowerCase() !== f.tag.toLowerCase()) return false;
+      if (f.person && L.personKey(t.person) !== L.personKey(f.person)) return false;
       if (q) {
-        const cat = store.category(t.categoryId).name;
+        const cat = t.categoryId ? store.category(t.categoryId).name : '';
         const acc = store.account(t.accountId);
+        const to = store.account(t.toAccountId);
         const amount = (t.amount / 100).toString();
-        const hay = `${t.note} ${cat} ${acc ? acc.name : ''} ${amount}`.toLowerCase();
+        const hay = `${t.note} ${cat} ${acc ? acc.name : ''} ${to ? to.name : ''} ${t.person || ''} ${t.tag || ''} ${amount}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -62,10 +65,12 @@ export function createActivity(root, { openEditor, filterButton }) {
       const a = store.account(f.accountId);
       chips.push(`<button class="chip on" data-clear="accountId">${icon(a.icon, true)}${esc(a.name)}<i class="ph ph-x chip-x"></i></button>`);
     }
+    if (f.tag) chips.push(`<button class="chip on" data-clear="tag">${icon('tag', true)}${esc(f.tag)}<i class="ph ph-x chip-x"></i></button>`);
+    if (f.person) chips.push(`<button class="chip on" data-clear="person">${icon('hand-coins', true)}${esc(f.person)}<i class="ph ph-x chip-x"></i></button>`);
     const box = $('.act-chips', root);
     box.innerHTML = chips.join('');
     box.hidden = !chips.length;
-    const active = !!(f.period || f.categoryId || f.accountId);
+    const active = !!(f.period || f.categoryId || f.accountId || f.tag || f.person);
     filterButton.innerHTML = icon('funnel', active);
   }
 
@@ -236,10 +241,12 @@ export function createActivity(root, { openEditor, filterButton }) {
   return {
     render,
     /** Opens the list pre-filtered, e.g. from a category in Insights. */
-    show({ categoryId = null, period = null, type = null } = {}) {
+    show({ categoryId = null, period = null, type = null, tag = null, person = null } = {}) {
       f.categoryId = categoryId;
       f.period = period;
       f.accountId = null;
+      f.tag = tag;
+      f.person = person;
       f.query = '';
       searchInput.value = '';
       clearBtn.hidden = true;

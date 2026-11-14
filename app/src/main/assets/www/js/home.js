@@ -5,6 +5,52 @@ import { esc, icon, tile, bindSwipeRows, toast } from './ui.js';
 import { ring, stackBar } from './charts.js';
 import { txRow } from './rows.js';
 import { messagesCardHTML, bindFindingRows, onRowTap, onRowDelete } from './messages.js';
+import { billsCardHTML, handleBillClick } from './bills.js';
+import { peopleCardHTML, handlePeopleClick } from './people.js';
+import { tripBannerHTML, handleTripClick } from './trips.js';
+import { summaryBannerHTML, handleSummaryClick } from './summary.js';
+import { openAccounts } from './manage.js';
+
+/** "Heads up": a category well above last month, heading over budget, an unusually big spend. */
+function alertsHTML() {
+  const st = store.state;
+  const alerts = L.computeAlerts(
+    { transactions: st.transactions, budgets: st.budgets, categoryName: id => store.category(id).name },
+    v => store.money(v),
+  ).filter(a => !st.settings.dismissed[a.key]);
+  if (!alerts.length) return '';
+  return `
+    <div class="section" style="margin-top:12px">
+      <div class="section-title"><h2>Heads Up</h2></div>
+      <div class="list">
+        ${alerts.map(a => `<div class="row heads-up">${tile(a.icon, a.color)}<div class="row-main">
+          <span class="heads-up-text">${esc(a.text)}</span>
+          <button class="icon-btn" data-dismiss="${esc(a.key)}" aria-label="Dismiss">${icon('x')}</button></div></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+/** Bank balances from the newest bank messages (no typing needed). */
+function balancesHTML() {
+  const list = Object.values(store.state.sms.balances || {}).sort((a, b) => b.time - a.time).slice(0, 4);
+  if (!list.length) return '';
+  return `
+    <div class="section" style="margin-top:12px">
+      <div class="section-title"><h2>Bank Balances</h2><button class="link" data-open-accounts>Accounts</button></div>
+      <div class="list">
+        ${list.map(b => {
+          const when = new Date(b.time);
+          const date = L.toISO(when);
+          const limit = b.kind === 'limit';
+          return `<div class="row">${tile(limit ? 'credit-card' : 'bank', limit ? 'orange' : 'blue', 'lg')}<div class="row-main"><div class="row-text">
+            <div class="row-title">${esc([b.bank, b.last4 ? `••${b.last4}` : ''].filter(Boolean).join(' '))}</div>
+            <div class="row-sub">${limit ? 'Available limit' : 'Balance'} · ${esc(L.shortDate(date))}, ${esc(when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }))}</div>
+          </div><span class="tx-amount">${esc(store.money(b.amount))}</span></div></div>`;
+        }).join('')}
+      </div>
+      <div class="section-footer">From your bank’s latest messages.</div>
+    </div>`;
+}
 
 export function createHome(root, { openEditor, goTo, openBudgets }) {
   function render() {
@@ -25,7 +71,11 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
             <div><button class="btn" data-act="add">${icon('plus')} Add your first expense</button></div>
           </div>
         </div>
+        ${tripBannerHTML()}
         ${messagesCardHTML()}
+        ${billsCardHTML()}
+        ${balancesHTML()}
+        ${peopleCardHTML()}
         ${st.budgets.monthly ? '' : budgetPrompt()}`;
       return;
     }
@@ -67,6 +117,8 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
     const recent = L.sortTransactions(st.transactions).slice(0, 6);
 
     root.innerHTML = `
+      ${tripBannerHTML()}
+      ${summaryBannerHTML()}
       <div class="card" style="margin-top:4px">
         <div class="hero">
           <div class="hero-main">
@@ -88,7 +140,9 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
         <div class="stat"><div class="stat-label">Daily avg</div><div class="stat-value">${esc(store.money(dailyAvg))}</div></div>
       </div>
 
+      ${alertsHTML()}
       ${messagesCardHTML()}
+      ${billsCardHTML()}
 
       ${top.length ? `
       <div class="card" data-act="insights" role="button">
@@ -101,6 +155,9 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
           }).join('')}
         </div>
       </div>` : ''}
+
+      ${balancesHTML()}
+      ${peopleCardHTML()}
 
       ${catBudgets.length ? `
       <div class="section" style="margin-top:12px">
@@ -149,6 +206,10 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
 
   bindFindingRows(root);
   root.addEventListener('click', e => {
+    if (handleBillClick(e) || handlePeopleClick(e) || handleTripClick(e) || handleSummaryClick(e)) return;
+    const dismiss = e.target.closest('[data-dismiss]');
+    if (dismiss) { store.dismissAlert(dismiss.dataset.dismiss); return; }
+    if (e.target.closest('[data-open-accounts]')) { openAccounts(); return; }
     const act = e.target.closest('[data-act]');
     if (!act) return;
     const name = act.dataset.act;

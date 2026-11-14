@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget: today's and this month's spending, with Speak and Add buttons -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_today"
+        android:textColor="@color/widget_secondary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/widget_today"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/widget_primary"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_month"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/widget_primary"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/widget_line"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/widget_secondary"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="bottom|end"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/widget_speak"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="10dp"
+            android:contentDescription="@string/widget_speak"
+            android:src="@drawable/ic_widget_speak" />
+
+        <ImageView
+            android:id="@+id/widget_add"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/shortcut_add_short"
+            android:src="@drawable/ic_shortcut_add" />
+    </LinearLayout>
+</LinearLayout>

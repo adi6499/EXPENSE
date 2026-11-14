@@ -3,4 +3,8 @@
     <color name="app_background">#F2F2F7</color>
     <color name="icon_top">#2F9BFF</color>
     <color name="icon_bottom">#5E5CE6</color>
+    <color name="widget_background">#FFFFFF</color>
+    <color name="widget_primary">#000000</color>
+    <color name="widget_secondary">#8E8E93</color>
+    <color name="widget_button">#E5E5EA</color>
 </resources>

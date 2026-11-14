@@ -17,6 +17,9 @@
     ['AX-SBICRD', 'Rs.3,240.00 spent on your SBI Credit Card ending 4321 at INDIAN OIL on 12/11/26. Trxn. Ref No. 123456789.', 3],
     ['AX-HDFCBK-P', 'Get a pre-approved personal loan of Rs 5,00,000 credited instantly! Apply now', 2],
     ['AD-ATMSBI', 'Dear Customer, Rs.2000 withdrawn at SBI ATM S1ANxxx from A/cX5678 on 12Nov26 Transaction Number 1234. Available Balance Rs.10000.', 1],
+    ['AX-HDFCBK', 'Your HDFC Bank Credit Card XX4321 statement: Total due Rs 12,345, Min due Rs 620, due date ' + new Date(now + 2 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-'), 6],
+    ['VM-AIRTEL', 'Your Airtel postpaid bill of Rs 499 is due on ' + new Date(now + 9 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-') + '. Pay now.', 7],
+    ['AX-HDFCBK', 'Rs 5000.00 debited from a/c XX1234 on 12-11-26 towards HDFC Credit Card bill payment. Avl Bal Rs 42,180.50', 8],
   ].map(([address, body, hoursAgo]) => ({ id: String(nextId++), address, body, date: now - hoursAgo * hour }));
 
   const reply = (id, payload) => setTimeout(() => window.__native && window.__native.resolve(id, payload), 120);
@@ -49,6 +52,13 @@
     requestNotifications(id) { reply(id, { ok: true }); },
     openAppSettings() { console.log('[fake] openAppSettings'); },
     consumeSharedText() { const text = shared; shared = ''; return text; },
+    canListen() { return true; },
+    listen(id) { reply(id, { ok: true, text: window.__fakeSpeech || 'spent 450 on petrol yesterday' }); },
+    shareBase64(id) { reply(id, { ok: true }); },
+    saveBase64(id) { reply(id, { ok: true }); },
+    setBillReminders(json) { window.__lastReminders = JSON.parse(json); },
+    updateWidget(today, month, line) { window.__widget = { today, month, line }; },
+    cleanPhotos() {},
   };
 
   // A new message arriving while the app is open

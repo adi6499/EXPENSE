@@ -13,6 +13,7 @@ function defaultSms() {
     lastDate: 0,      // newest message already looked at (milliseconds)
     pending: [],      // found in messages, waiting to be checked and added
     payees: {},       // what was learned per payee (see "Learning" in sms.js)
+    balances: {},     // 'HDFC Bank|1234' → { amount, kind: 'balance'|'limit', time } from the latest message
     accounts: {},     // 'HDFC Bank|1234' → account chosen for it
   };
 }
@@ -77,6 +78,7 @@ export function createDefaultState() {
     accounts: defaultAccounts(),
     recurring: [],
     budgets: { monthly: 0, categories: {} },
+    bills: [],        // { id, name, amount, minDue, dueDate, paid, autopay, key, source }
     sms: defaultSms(),
     settings: {
       currency: 'INR',
@@ -85,6 +87,9 @@ export function createDefaultState() {
       reminder: { enabled: false, hour: 21, minute: 0 },
       onboarded: false,
       lastAccountId: 'upi',
+      activeTag: '',      // a trip or event that new spending is tagged with until it ends
+      dismissed: {},      // heads-up alerts already closed
+      summarySeen: '',    // 'YYYY-MM' whose monthly picture was already shown
     },
   };
 }
@@ -100,6 +105,7 @@ export function normalizeState(raw) {
     accounts: Array.isArray(raw.accounts) ? raw.accounts : base.accounts,
     recurring: Array.isArray(raw.recurring) ? raw.recurring : [],
     budgets: { ...base.budgets, ...(raw.budgets || {}) },
+    bills: Array.isArray(raw.bills) ? raw.bills.filter(b => b && b.id && Number.isFinite(b.amount) && /^\d{4}-\d{2}-\d{2}$/.test(b.dueDate || '')) : [],
     sms: { ...base.sms, ...(raw.sms && typeof raw.sms === 'object' ? raw.sms : {}) },
     settings: { ...base.settings, ...(raw.settings || {}) },
   };
@@ -107,23 +113,29 @@ export function normalizeState(raw) {
   sms.pending = Array.isArray(sms.pending)
     ? sms.pending.filter(p => p && p.id && Number.isFinite(p.amount) && p.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(p.date || '')).slice(0, MAX_PENDING)
     : [];
-  for (const key of ['payees', 'accounts']) if (!sms[key] || typeof sms[key] !== 'object') sms[key] = {};
+  for (const key of ['payees', 'accounts', 'balances']) if (!sms[key] || typeof sms[key] !== 'object') sms[key] = {};
   sms.lastDate = Number(sms.lastDate) || 0;
   delete sms.merchants;
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
+  if (!state.settings.dismissed || typeof state.settings.dismissed !== 'object') state.settings.dismissed = {};
+  if (typeof state.settings.activeTag !== 'string') state.settings.activeTag = '';
   state.budgets.categories = state.budgets.categories || {};
   state.transactions = state.transactions
     .filter(t => t && typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && Number.isFinite(t.amount))
     .map(t => ({
       id: t.id || L.uid(),
-      type: t.type === 'income' ? 'income' : 'expense',
+      type: ['expense', 'income', 'transfer', 'loan'].includes(t.type) ? t.type : 'expense',
       amount: Math.abs(Math.round(t.amount)),
-      categoryId: t.categoryId || null,
+      categoryId: t.type === 'transfer' || t.type === 'loan' ? null : t.categoryId || null,
       accountId: t.accountId || null,
       date: t.date,
       note: typeof t.note === 'string' ? t.note : '',
       createdAt: t.createdAt || Date.now(),
       ...(t.recurringId ? { recurringId: t.recurringId } : {}),
+      ...(t.type === 'transfer' ? { toAccountId: t.toAccountId || null } : {}),
+      ...(t.type === 'loan' ? { person: String(t.person || 'Someone'), direction: t.direction === 'in' ? 'in' : 'out' } : {}),
+      ...(t.tag ? { tag: String(t.tag) } : {}),
+      ...(t.photo ? { photo: true } : {}),
       ...(t.sms && typeof t.sms === 'object' && t.sms.id ? { sms: {
         id: String(t.sms.id),
         ...(t.sms.ref ? { ref: String(t.sms.ref) } : {}),
@@ -267,6 +279,11 @@ export const store = {
       frequency,
       anchorDay: L.parseISO(tx.date).getDate(),
     });
+    delete rule.toAccountId;
+    delete rule.person;
+    delete rule.direction;
+    if (tx.type === 'transfer') rule.toAccountId = tx.toAccountId;
+    if (tx.type === 'loan') Object.assign(rule, { person: tx.person, direction: tx.direction });
     if (!existing || existing.frequency !== frequency || !existing.nextDate || existing.nextDate <= tx.date) {
       rule.nextDate = L.nextOccurrence(tx.date, frequency, rule.anchorDay);
     }
@@ -333,8 +350,14 @@ export const store = {
   },
 
   deleteAccount(id) {
-    for (const t of this.state.transactions) if (t.accountId === id) t.accountId = null;
-    for (const r of this.state.recurring) if (r.accountId === id) r.accountId = null;
+    for (const t of this.state.transactions) {
+      if (t.accountId === id) t.accountId = null;
+      if (t.toAccountId === id) t.toAccountId = null;
+    }
+    for (const r of this.state.recurring) {
+      if (r.accountId === id) r.accountId = null;
+      if (r.toAccountId === id) r.toAccountId = null;
+    }
     this.state.accounts = this.state.accounts.filter(a => a.id !== id);
     if (this.state.settings.lastAccountId === id) this.state.settings.lastAccountId = this.state.accounts[0] ? this.state.accounts[0].id : null;
     this.commit();
@@ -503,6 +526,101 @@ export const store = {
     this.commit();
   },
 
+  // ---- Balances and bills read from bank messages
+
+  /** Keeps the newest balance per bank + account, and the bills (one per bill and due date). */
+  takeMessageExtras({ balances = [], bills = [], paid = [] }) {
+    let changed = false;
+    const known = this.state.sms.balances;
+    for (const b of balances) {
+      if (!known[b.key] || known[b.key].time <= b.time) {
+        known[b.key] = { amount: b.amount, kind: b.kind, time: b.time, bank: b.bank, last4: b.last4 };
+        changed = true;
+      }
+    }
+    for (const b of bills) {
+      const same = this.state.bills.find(x => x.key === b.key && Math.abs(L.daysBetween(x.dueDate, b.dueDate)) <= 3);
+      if (same) {
+        if (same.source === 'sms' && !same.paid) Object.assign(same, { amount: b.amount, minDue: b.minDue, dueDate: b.dueDate });
+        continue;
+      }
+      if (b.dueDate < L.addDays(L.todayISO(), -3)) continue; // long past
+      this.state.bills.push({ id: L.uid(), key: b.key, name: b.name, amount: b.amount, minDue: b.minDue || 0, dueDate: b.dueDate,
+        autopay: !!b.autopay, paid: false, source: 'sms', bank: b.bank || '', last4: b.last4 || '', createdAt: Date.now() });
+      changed = true;
+    }
+    for (const p of paid) {
+      const bill = this.state.bills.filter(x => !x.paid && x.key === p.key).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))[0];
+      if (bill) { bill.paid = true; bill.paidOn = L.todayISO(); changed = true; }
+    }
+    // Paid bills disappear after a month
+    const cutoff = L.addDays(L.todayISO(), -30);
+    const before = this.state.bills.length;
+    this.state.bills = this.state.bills.filter(b => !(b.paid && b.dueDate < cutoff) && !(b.autopay && b.dueDate < cutoff));
+    if (this.state.bills.length !== before) changed = true;
+    if (changed) this.commit();
+    return changed;
+  },
+
+  saveBill(bill) {
+    const existing = this.state.bills.find(b => b.id === bill.id);
+    if (existing) Object.assign(existing, bill);
+    else this.state.bills.push({ paid: false, minDue: 0, source: 'manual', key: `manual|${L.uid()}`, createdAt: Date.now(), ...bill, id: bill.id || L.uid() });
+    this.commit();
+  },
+
+  setBillPaid(id, paid = true) {
+    const bill = this.state.bills.find(b => b.id === id);
+    if (!bill) return;
+    bill.paid = paid;
+    bill.paidOn = paid ? L.todayISO() : undefined;
+    this.commit();
+  },
+
+  deleteBill(id) {
+    this.state.bills = this.state.bills.filter(b => b.id !== id);
+    this.commit();
+  },
+
+  /** Makes an account's balance match what the bank says, by setting its starting balance. */
+  matchBalance(accountId, bankAmount) {
+    const account = this.account(accountId);
+    if (!account) return;
+    const current = L.accountBalances([account], this.state.transactions).get(accountId);
+    account.openingBalance = (account.openingBalance || 0) + (bankAmount - current);
+    this.commit();
+  },
+
+  // ---- Trips, alerts, photos
+
+  setActiveTag(tag) {
+    this.state.settings.activeTag = String(tag || '').trim();
+    this.commit();
+  },
+
+  renameTag(from, to) {
+    const key = String(from).toLowerCase();
+    for (const t of this.state.transactions) if (t.tag && t.tag.toLowerCase() === key) t.tag = to;
+    if (this.state.settings.activeTag.toLowerCase() === key) this.state.settings.activeTag = to;
+    this.commit();
+  },
+
+  dismissAlert(key) {
+    const d = this.state.settings.dismissed;
+    d[key] = 1;
+    const keys = Object.keys(d);
+    if (keys.length > 200) for (const k of keys.slice(0, keys.length - 200)) delete d[k];
+    this.commit();
+  },
+
+  setPhoto(id, has) {
+    const t = this.state.transactions.find(x => x.id === id);
+    if (!t) return;
+    if (has) t.photo = true;
+    else delete t.photo;
+    this.commit();
+  },
+
   // ---- Bulk
 
   replaceAll(raw) {
@@ -563,15 +681,19 @@ export const store = {
         duplicates++;
         continue;
       }
+      const plain = item.type === 'income' || item.type === 'expense';
       this.state.transactions.push({
         id: L.uid(),
         type: item.type,
         amount: item.amount,
-        categoryId: findCategory(item.categoryName, item.type),
+        categoryId: plain ? findCategory(item.categoryName, item.type) : null,
         accountId: findAccount(item.accountName),
         date: item.date,
         note: item.note || '',
         createdAt: now + added,
+        ...(item.type === 'transfer' ? { toAccountId: findAccount(item.toAccountName) } : {}),
+        ...(item.type === 'loan' ? { person: item.person, direction: item.direction } : {}),
+        ...(item.tag ? { tag: item.tag } : {}),
       });
       added++;
     }

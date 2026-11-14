@@ -2,7 +2,7 @@
 // out the amount, whether money went out or came in, the bank, the account's last digits and who
 // it was paid to. Also guesses a category and account for it.
 // Pure functions only: no DOM, no storage. Unit-tested in tests/sms.test.js.
-import { toISO, addDays } from './logic.js';
+import { toISO, addDays, parseFlexibleDate } from './logic.js';
 
 // ---------- Senders
 
@@ -23,7 +23,7 @@ const BANKS = [
   [/^INDUS/, 'IndusInd'],
   [/^YES/, 'Yes Bank'],
   [/^(PAYTM|PYTM)/, 'Paytm'],
-  [/^(AIRBNK|AIRTEL)/, 'Airtel Payments Bank'],
+  [/^(AIRBNK|AIRPBK)/, 'Airtel Payments Bank'],
   [/^FED/, 'Federal Bank'],
   [/^CENT/, 'Central Bank'],
   [/^IOB/, 'IOB'],
@@ -273,7 +273,7 @@ export function parseBankSms(message, options = {}) {
   let merchant = findCounterparty(text, type);
   if (kind === 'atm') merchant = 'Cash withdrawal';
   const when = Number(date) || Date.now();
-  return {
+  const finding = {
     id: String(id || `${address}|${when}`),
     type,
     amount,
@@ -287,6 +287,9 @@ export function parseBankSms(message, options = {}) {
     address: String(address || ''),
     body: String(body).trim().slice(0, 500),
   };
+  finding.transfer = transferKind(finding);
+  if (finding.transfer === 'card' && !finding.merchant) finding.merchant = 'Card bill payment';
+  return finding;
 }
 
 // ---------- Category and account guesses
@@ -403,9 +406,10 @@ export function learnAdded(state, finding, tx, { explicit = false } = {}) {
     }
     if (p.mode === 'ignore') delete p.mode;
   }
-  if (explicit && (finding.bank || finding.last4) && tx.accountId) {
+  // The account a bank/card belongs to: what you pick wins; otherwise the first one used is kept
+  if ((finding.bank || finding.last4) && tx.accountId && tx.type !== 'transfer') {
     state.sms.accounts = state.sms.accounts || {};
-    state.sms.accounts[accountKey(finding)] = tx.accountId;
+    if (explicit || !state.sms.accounts[accountKey(finding)]) state.sms.accounts[accountKey(finding)] = tx.accountId;
   }
 }
 
@@ -454,6 +458,19 @@ export function decide(finding, state) {
 export function toTransaction(finding, state) {
   const p = payeeOf(finding, state);
   const key = payeeKey(finding.merchant);
+  const sms = { id: finding.id, ...(finding.ref ? { ref: finding.ref } : {}), ...(key ? { payee: key } : {}) };
+  if (finding.transfer) {
+    // ATM cash or a card bill: money moves from the bank to cash / the card, nothing is spent
+    const from = (state.sms && state.sms.accounts && state.sms.accounts[`${finding.bank}|${finding.last4}`]) || findAccountFor(state, 'bank', /bank/i);
+    const to = finding.transfer === 'cash' ? findAccountFor(state, 'cash', /cash/i) : findAccountFor(state, 'card', /credit|card/i);
+    if (from && to && from !== to) {
+      return {
+        type: 'transfer', amount: finding.amount, categoryId: null, accountId: from, toAccountId: to,
+        date: finding.date, note: (p && p.note) || finding.merchant || '', sms,
+      };
+    }
+  }
+  const tag = state.settings && state.settings.activeTag;
   return {
     type: finding.type,
     amount: finding.amount,
@@ -461,7 +478,8 @@ export function toTransaction(finding, state) {
     accountId: guessAccount(finding, state),
     date: finding.date,
     note: (p && p.note) || finding.merchant || '',
-    sms: { id: finding.id, ...(finding.ref ? { ref: finding.ref } : {}), ...(key ? { payee: key } : {}) },
+    sms,
+    ...(tag && finding.type === 'expense' ? { tag } : {}),
   };
 }
 
@@ -487,4 +505,136 @@ export function textId(text) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return `text-${h.toString(36)}-${s.length}`;
+}
+
+// ---------- Transfers: money that only moves between your own accounts
+
+// Paying a credit card bill from the bank: not spending, the card's spends were already counted
+const CARD_BILL_PAYMENT = /\b(?:credit\s*card|card)\b.{0,40}\b(?:bill|payment|dues?)\b|\b(?:bill|payment)\b.{0,30}\bcredit\s*card\b|\bcred\s*club\b|\bbilldesk\b.{0,30}\bcard\b/i;
+
+/** 'cash' (ATM withdrawal: bank → cash), 'card' (card bill paid: bank → card) or ''. */
+export function transferKind(finding) {
+  if (!finding || finding.type !== 'expense') return '';
+  if (finding.kind === 'atm') return 'cash';
+  if (CARD_BILL_PAYMENT.test(finding.body || '') && !/\bspent\b|\bwas used\b|\busing your\b/i.test(finding.body || '')) return 'card';
+  return '';
+}
+
+function findAccountFor(state, id, re) {
+  const accounts = state.accounts || [];
+  return (accounts.find(a => a.id === id) || accounts.find(a => re.test(a.name)) || {}).id || null;
+}
+
+// ---------- Balances: "Avl Bal Rs 12,450" at the end of most bank messages
+
+const BALANCE_WORD = /\b(bal(?:ance)?|limit|lmt)\b/gi;
+// After the word: an amount with Rs/INR/₹ within a few words, or a bare number right after ':' / 'is'
+const AFTER_WITH_CURRENCY = /^[^₹|]{0,35}?(?:₹|\b(?:rs|inr)(?![a-z]))\.?\s*:?\s*(-?[0-9][0-9,]*(?:\.[0-9]{1,2})?)/i;
+const AFTER_BARE = /^\s*(?::|-|is)?\s*(-?[0-9][0-9,]*(?:\.[0-9]{1,2})?)\b/i;
+
+function findBalance(text) {
+  BALANCE_WORD.lastIndex = 0;
+  let m;
+  while ((m = BALANCE_WORD.exec(text))) {
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 60);
+    const found = after.match(AFTER_WITH_CURRENCY) || after.match(AFTER_BARE);
+    if (found) return { word: m[1], value: found[1] };
+  }
+  return null;
+}
+
+/** The balance (or a card's available limit) a message reports: { key, bank, last4, amount, kind, time } or null. */
+export function parseBalance(message) {
+  const { address = '', body = '', date = Date.now() } = message || {};
+  if (!body || isPersonalNumber(address) || /-P$/i.test(String(address).trim())) return null;
+  const text = cleanText(body);
+  if (/\b(?:otp|pre-?approved|eligible|apply now|min(?:imum)?\s+(?:amount\s+|amt\s+)?due)\b/i.test(text)) return null;
+  const m = findBalance(text);
+  if (!m) return null;
+  const amount = Math.round(parseFloat(m.value.replace(/,/g, '')) * 100);
+  if (!isFinite(amount)) return null;
+  const bank = bankName(address);
+  const digits = text.match(ACCOUNT_DIGITS);
+  if (!bank && !digits) return null;
+  const header = senderHeader(address) || '';
+  const isLimit = /limit|lmt/i.test(m.word) || (/(CRD|CARD|AMEX)/.test(header) && /^bal/i.test(m.word));
+  const last4 = digits ? digits[1] : '';
+  return { key: `${bank || header}|${last4}`, bank: bank || header, last4, amount, kind: isLimit ? 'limit' : 'balance', time: Number(date) || Date.now() };
+}
+
+// ---------- Bills: "Total due Rs 8,200, min due Rs 410, due date 20-Nov-26"
+
+const MONTH_NAMES = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';
+const DATE_TOKEN = new RegExp(String.raw`(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}(?:st|nd|rd|th)?[\s-]*(?:${MONTH_NAMES})[a-z]*[\s,-]*(?:\d{2,4})?|(?:${MONTH_NAMES})[a-z]*[\s-]*\d{1,2}(?:st|nd|rd|th)?(?:[\s,-]+\d{4})?)`, 'i');
+const DUE_DATE = new RegExp(String.raw`\b(?:due\s*(?:date|on|by)?|pay(?:ment)?\s+by|on\s+or\s+before|will\s+be\s+(?:auto-?)?debited\b[^.|]{0,40}?\bon|scheduled\s+(?:for|on))\s*(?:is|:|-)?\s*(?:on\s+)?${DATE_TOKEN.source}`, 'i');
+const TOTAL_DUE = /\b(?:total\s+(?:amount\s+|amt\.?\s+)?due|total\s+outstanding|amount\s+due|amt\.?\s+due|bill\s+(?:amount\s+)?(?:of|for|is)|outstanding(?:\s+amount)?|statement\s+(?:amount|balance))\b[^0-9₹]{0,12}(?:₹|\b(?:rs|inr)(?![a-z]))?\.?\s*:?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i;
+const MIN_DUE = /\bmin(?:imum)?\.?\s+(?:amount\s+|amt\.?\s+)?due\b[^0-9₹]{0,8}(?:₹|\b(?:rs|inr)(?![a-z]))?\.?\s*:?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i;
+
+/** A date written in a message → 'YYYY-MM-DD'. Without a year, the next one after about two months ago. */
+export function messageDate(token, sentAt = Date.now()) {
+  const text = String(token || '').trim().replace(/(\d)(st|nd|rd|th)\b/i, '$1').replace(/,/g, ' ');
+  const withYear = parseFlexibleDate(text, 'dmy');
+  if (withYear) return withYear;
+  const sent = new Date(sentAt);
+  let m = text.match(new RegExp(String.raw`^(\d{1,2})[\s-]*(${MONTH_NAMES})`, 'i'));
+  let day;
+  let month;
+  if (m) { day = +m[1]; month = MONTH_NAMES.split('|').indexOf(m[2].slice(0, 3).toLowerCase()); }
+  m = m ? null : text.match(new RegExp(String.raw`^(${MONTH_NAMES})[a-z]*[\s-]*(\d{1,2})`, 'i'));
+  if (m) { month = MONTH_NAMES.split('|').indexOf(m[1].slice(0, 3).toLowerCase()); day = +m[2]; }
+  if (month === undefined || month < 0 || !day) return null;
+  let year = sent.getFullYear();
+  let candidate = new Date(year, month, day);
+  if (candidate < new Date(sent.getTime() - 60 * 86400000)) candidate = new Date(++year, month, day);
+  return toISO(candidate);
+}
+
+/**
+ * A bill or an automatic payment coming up: { key, name, amount, minDue, dueDate, autopay } or null.
+ * Card statements, phone/electricity bills, and "Rs 199 will be debited on 15-Nov for NETFLIX".
+ */
+export function parseBill(message) {
+  const { address = '', body = '', date = Date.now() } = message || {};
+  if (!body || isPersonalNumber(address)) return null;
+  const text = cleanText(body);
+  if (/\b(?:otp|verification code|pre-?approved|apply now|eligible for|has been paid|received (?:your |the )?payment|payment (?:of .{0,25})?(?:received|successful))\b/i.test(text)) return null;
+  const due = text.match(DUE_DATE);
+  if (!due) return null;
+  const dueDate = messageDate(due[1], date);
+  if (!dueDate) return null;
+  const autopay = /\bwill\s+be\s+(?:auto-?)?debited\b|\bauto-?debit\b|\bauto-?pay\b|\bmandate\b|\bsi\b|\bstanding instruction\b/i.test(text);
+  const total = text.match(TOTAL_DUE);
+  const min = text.match(MIN_DUE);
+  let amount = total ? Math.round(parseFloat(total[1].replace(/,/g, '')) * 100) : 0;
+  if (!amount) amount = findAmount(text);
+  if (!amount) return null;
+  const minDue = min ? Math.round(parseFloat(min[1].replace(/,/g, '')) * 100) : 0;
+  if (minDue && amount === minDue && total === null) return null; // only a minimum: not enough to go on
+  const bank = bankName(address);
+  const digits = text.match(ACCOUNT_DIGITS);
+  const last4 = digits ? digits[1] : '';
+  let name = '';
+  const forWhat = text.match(/\bfor\s+([A-Za-z][A-Za-z0-9&' .-]{1,30}?)(?=\s*(?:\b(?:mandate|subscription|from|on|via|using|ref|a\/c|ac|account)\b|[.,;|]|$))/i);
+  const yourBill = text.match(/\byour\s+([A-Za-z][A-Za-z0-9&' -]{1,30}?)\s+(?:bill|postpaid|statement|dues|emi|premium)\b/i);
+  if (/\bcard\b/i.test(text) && (bank || last4)) name = `${(bank || 'Card').replace(/ Bank$/, '')} card${last4 ? ` ••${last4}` : ''}`;
+  else if (autopay && forWhat) name = prettyName(forWhat[1]);
+  else if (yourBill) name = prettyName(yourBill[1].replace(/^(?:a\/c|account)\s+/i, ''));
+  if (!name) name = bank ? `${bank} bill` : prettyName(senderHeader(address) || '') || 'Bill';
+  const key = autopay ? `${name.toLowerCase()}|auto` : `${(bank || name).toLowerCase()}|${last4}`;
+  return { key, name, amount, minDue, dueDate, autopay, bank, last4, time: Number(date) || Date.now() };
+}
+
+/** "Payment of Rs 8,200 received towards your SBI Card ending 1234": { key, amount } or null. */
+export function parseBillPaid(message) {
+  const { address = '', body = '' } = message || {};
+  if (!body || isPersonalNumber(address)) return null;
+  const text = cleanText(body);
+  if (!/\bpayment\b.{0,60}\b(?:received|credited|successful|processed)\b|\breceived (?:your |a |the )?payment\b|\bbill\b.{0,40}\b(?:has been )?paid\b/i.test(text)) return null;
+  const amount = findAmount(text);
+  if (!amount) return null;
+  const bank = bankName(address);
+  const digits = text.match(ACCOUNT_DIGITS);
+  const last4 = digits ? digits[1] : '';
+  if (!bank && !last4) return null;
+  return { key: `${(bank || '').toLowerCase()}|${last4}`, bank, last4, amount };
 }

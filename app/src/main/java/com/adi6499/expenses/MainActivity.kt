@@ -8,9 +8,15 @@ import android.database.ContentObserver
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.provider.Telephony
+import android.speech.RecognizerIntent
+import android.content.ClipData
+import androidx.core.content.FileProvider
+import java.io.File
 import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -51,14 +57,19 @@ class MainActivity : ComponentActivity() {
     // One file request at a time: the id the web app is waiting on
     private var pendingFileId: String? = null
     private var pendingExportText: String? = null
+    private var pendingExportBytes: ByteArray? = null
+    private var cameraUri: Uri? = null
+    private var cameraFile: File? = null
 
     val createDocumentLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = pendingFileId ?: return@registerForActivityResult
         val text = pendingExportText
+        val bytes = pendingExportBytes
         pendingFileId = null
         pendingExportText = null
+        pendingExportBytes = null
         val uri = result.data?.data
-        if (result.resultCode != Activity.RESULT_OK || uri == null || text == null) {
+        if (result.resultCode != Activity.RESULT_OK || uri == null || (text == null && bytes == null)) {
             resolve(id, JSONObject().put("ok", false).put("cancelled", true))
             return@registerForActivityResult
         }
@@ -68,7 +79,7 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {
                 contentResolver.openOutputStream(uri, "w")
             }
-            stream?.use { it.write(text.toByteArray(Charsets.UTF_8)) } ?: error("Could not open the file")
+            stream?.use { it.write(bytes ?: text!!.toByteArray(Charsets.UTF_8)) } ?: error("Could not open the file")
             resolve(id, JSONObject().put("ok", true))
         } catch (e: Exception) {
             resolve(id, JSONObject().put("ok", false).put("error", e.message ?: "Could not save the file"))
@@ -139,11 +150,81 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun startFileRequest(id: String, exportText: String? = null) {
+    /** A photo taken with the camera or picked from the gallery, shrunk to a JPEG for the web app. */
+    val photoPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val id = pendingFileId ?: return@registerForActivityResult
+        pendingFileId = null
+        val picked = result.data?.data
+        val fromCamera = cameraFile?.takeIf { it.exists() && it.length() > 0 }?.let { cameraUri }
+        val uri = if (result.resultCode == Activity.RESULT_OK) picked ?: fromCamera else null
+        if (uri == null) {
+            resolve(id, JSONObject().put("ok", false).put("cancelled", true))
+            return@registerForActivityResult
+        }
+        Thread {
+            val answer = try {
+                JSONObject().put("ok", true).put("dataUrl", Photos.loadScaled(this, uri))
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("error", "Couldn't open that picture")
+            }
+            cameraFile?.delete()
+            resolve(id, answer)
+        }.start()
+    }
+
+    fun pickPhoto(id: String) {
+        startFileRequest(id)
+        val gallery = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        val extras = mutableListOf<Intent>()
+        try {
+            val file = File(File(cacheDir, "camera").apply { mkdirs() }, "photo.jpg").apply { delete() }
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+            cameraFile = file
+            cameraUri = uri
+            extras += Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                clipData = ClipData.newRawUri("", uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } catch (_: Exception) {
+            cameraFile = null
+            cameraUri = null
+        }
+        val chooser = Intent.createChooser(gallery, "Bill photo").apply {
+            if (extras.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toTypedArray())
+        }
+        try {
+            photoPickerLauncher.launch(chooser)
+        } catch (e: Exception) {
+            pendingFileId = null
+            resolve(id, JSONObject().put("ok", false).put("error", "No camera or gallery app found"))
+        }
+    }
+
+    /** "Spent 450 on petrol" spoken through the phone's own voice typing. */
+    val speechLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val id = pendingFileId ?: return@registerForActivityResult
+        pendingFileId = null
+        val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (result.resultCode != Activity.RESULT_OK || text.isNullOrBlank()) {
+            resolve(id, JSONObject().put("ok", false).put("error", ""))
+        } else {
+            resolve(id, JSONObject().put("ok", true).put("text", text))
+        }
+    }
+
+    fun speechIntent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+        putExtra(RecognizerIntent.EXTRA_PROMPT, "Say the amount and what it was for")
+    }
+
+    fun startFileRequest(id: String, exportText: String? = null, exportBytes: ByteArray? = null) {
         // A request that never came back (e.g. the picker was killed) is answered as cancelled
         pendingFileId?.let { resolve(it, JSONObject().put("ok", false).put("cancelled", true)) }
         pendingFileId = id
         pendingExportText = exportText
+        pendingExportBytes = exportBytes
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -181,6 +262,7 @@ class MainActivity : ComponentActivity() {
 
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .addPathHandler("/photos/", WebViewAssetLoader.InternalStoragePathHandler(this, Photos.dir(this)))
             .build()
 
         webView.webViewClient = object : WebViewClient() {

@@ -55,15 +55,23 @@ export function checkMessages({ quiet = true } = {}) {
     }
     let newest = since;
     const findings = [];
+    const extras = { balances: [], bills: [], paid: [] };
     for (const m of result.messages || []) {
       newest = Math.max(newest, Number(m.date) || 0);
       try {
         const f = S.parseBankSms(m);
         if (f) findings.push(f);
+        const balance = S.parseBalance(m);
+        if (balance) extras.balances.push(balance);
+        const bill = f ? null : S.parseBill(m);
+        if (bill) extras.bills.push(bill);
+        const paid = S.parseBillPaid(m);
+        if (paid) extras.paid.push(paid);
       } catch (err) {
         console.warn('Skipped a message that could not be read', err);
       }
     }
+    store.takeMessageExtras(extras);
     const outcome = store.takeFindings(findings, newest);
     announce(outcome, quiet);
     return outcome;
@@ -179,7 +187,10 @@ export function syncPhone() {
 // ---------- Rows (Summary card and the review page)
 
 function findingRow(f, { full = false } = {}) {
-  const cat = store.category(S.guessCategory(f, store.state));
+  const asTx = S.toTransaction(f, store.state);
+  const cat = asTx.type === 'transfer'
+    ? { icon: 'arrows-left-right', color: 'blue' }
+    : store.category(asTx.categoryId);
   const amount = f.type === 'income' ? store.money(f.amount, { sign: true }) : store.money(f.amount);
   const typed = S.looksTypedIn(f, store.state);
   return `<div class="swipe-row ignorable" data-id="${ROW_PREFIX}${esc(f.id)}">

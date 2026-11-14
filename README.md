@@ -14,6 +14,25 @@ install it and start adding expenses. Everything is saved on the phone.
 - **Learns as you go**: what you pick for a payee (category, your own name for it) and which account each card or
   bank account belongs to. Add the same payee twice with the same category and it's added automatically from then on;
   ignore it twice and it's skipped. Settings → Bank Messages → **Learned** shows all of it, and you can change or forget any.
+- **Bank balances** read from the "Avl Bal Rs …" at the end of bank messages (Summary → Bank Balances; Accounts shows
+  "Bank says ₹X" with **Match** to line the app up with the bank).
+- **Bills**: card statements ("Total due… due date…"), phone/power bills and automatic payments ("will be debited on…")
+  from bank messages, or added by hand. Reminders 2 days before and on the due day; marked paid when the bank says
+  the payment arrived. Insights → Bills.
+- **Transfers**: money moved between your own accounts (ATM cash, paying the card bill, bank → UPI) is not counted as
+  spending. ATM and card-bill messages become transfers by themselves.
+- **Lent & borrowed**: add a Loan ("I gave" / "I got") with a name; Summary and Insights → Lent & Borrowed show who
+  owes whom, with "Got it back" and a WhatsApp reminder.
+- **Trips & events**: tag spending ("Goa trip", "Wedding"); start a trip and everything added — even from bank
+  messages — is tagged until you end it; see the total per tag (Insights → Trips & Events).
+- **Regular payments** found in your spending (Netflix, rent, gym…) with the monthly total (Insights), and
+  **Heads Up** alerts on Summary: a category well above last month, heading over budget, an unusually big spend.
+- **Speak it**: "spent 450 on petrol yesterday" fills in amount, note, category and date (Speak button in the editor,
+  the widget, or long-press the app icon).
+- **Bill photos**: attach a photo (camera or gallery) to any transaction; kept on the phone (not in backups).
+- **Monthly picture**: your month in one image (spent, income, kept, where it went) to share on WhatsApp — offered in
+  the first week of each month, and from Insights for any month.
+- **Home-screen widget**: today and this month at a glance, with Speak and Add buttons.
 - **Add in seconds**: big number pad, category strip, notes that remember (typing "Swiggy" picks Food & UPI again)
 - **Summary**: spent this month, budget ring, income and balance, today / this week / daily average, where the money went
 - **Transactions**: search, filter by period / category / account, grouped by day, swipe left to delete (with Undo)

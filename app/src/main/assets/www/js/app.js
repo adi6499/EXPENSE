@@ -12,6 +12,8 @@ import { createSettings } from './settings.js';
 import { openBudgets } from './manage.js';
 import { showOnboarding } from './onboarding.js';
 import { checkMessages, openReview, addFromSharedText, syncPhone, takeMessageText } from './messages.js';
+import { syncBillReminders, openBills } from './bills.js';
+import { nav } from './nav.js';
 
 const TAB_ICONS = { home: 'house', activity: 'list-bullets', insights: 'chart-pie-slice', settings: 'gear-six' };
 const LOCK_AFTER_MS = 60_000;
@@ -62,6 +64,25 @@ function renderAll() {
   $('#home-date').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
   screens[activeTab].render();
   for (const name of Object.keys(screens)) if (name !== activeTab) dirty.add(name);
+}
+
+/** Keeps the phone's bill reminders and home-screen widget up to date (a moment after changes). */
+let phoneSyncTimer = null;
+function syncPhoneExtras() {
+  if (!native.isApp) return;
+  clearTimeout(phoneSyncTimer);
+  phoneSyncTimer = setTimeout(() => {
+    syncBillReminders();
+    const st = store.state;
+    const today = L.todayISO();
+    const month = L.totals(L.inRange(st.transactions, L.startOfMonth(today), L.endOfMonth(today))).expense;
+    const todaySpent = L.totals(st.transactions.filter(t => t.date === today)).expense;
+    const budget = st.budgets.monthly;
+    const line = budget
+      ? (month <= budget ? `${store.money(budget - month)} left this month` : `${store.money(month - budget)} over budget`)
+      : new Date().toLocaleDateString('en-IN', { month: 'long' });
+    native.updateWidget(store.money(todaySpent), store.money(month), line, store.money(0));
+  }, 600);
 }
 
 let lastAddTap = 0;
@@ -158,6 +179,7 @@ window.__onResume = () => {
     if (!store.applyRecurring()) renderAll();
   }
   readMessages();
+  syncPhoneExtras();
 };
 
 window.__onBack = () => {
@@ -172,6 +194,9 @@ window.__onBack = () => {
 
 window.__onAction = action => {
   if (action === 'add' && store.state.settings.onboarded && !lockEl) addNew();
+  if (action === 'speak' && store.state.settings.onboarded && !lockEl) addNew({ speak: true });
+  if (action === 'bills') whenUnlocked(() => openBills());
+  if (action === 'home') goTo('home');
   if (action === 'sms') readMessages(true);
 };
 
@@ -310,7 +335,13 @@ function boot() {
     settings: createSettings($('#settings'), { applyTheme, webInstall }),
   };
 
+  nav.goTo = goTo;
+  nav.showActivity = options => {
+    goTo('activity');
+    activity.show(options);
+  };
   store.subscribe(renderAll);
+  store.subscribe(syncPhoneExtras);
   $$('.tab').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.tab !== activeTab) haptic('selection');
     goTo(b.dataset.tab);
@@ -332,10 +363,15 @@ function boot() {
   } else {
     lock();
     if (launchAction === 'add' && !lockEl) setTimeout(() => addNew(), 300);
+    if (launchAction === 'speak' && !lockEl) setTimeout(() => addNew({ speak: true }), 300);
+    if (launchAction === 'bills') whenUnlocked(() => setTimeout(openBills, 300));
     if (store.state.transactions.length) askToKeepData();
   }
 
   syncPhone();
+  syncPhoneExtras();
+  // Photos whose transaction is gone (deleted, or replaced by a restore)
+  native.cleanPhotos(store.state.transactions.filter(t => t.photo).map(t => t.id));
   readMessages(launchAction === 'sms');
   if (sharedText) whenUnlocked(() => setTimeout(() => addFromSharedText(sharedText), 300));
   takeLinkedMessage();

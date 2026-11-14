@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A microphone in a grey circle -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:fillColor="@color/widget_button" android:pathData="M24,24m-24,0a24,24 0 1 0 48,0a24,24 0 1 0 -48,0" />
+    <path android:fillColor="@color/widget_primary" android:pathData="M24,12c-2.76,0 -5,2.24 -5,5v7c0,2.76 2.24,5 5,5s5,-2.24 5,-5v-7c0,-2.76 -2.24,-5 -5,-5z" />
+    <path android:fillColor="@color/widget_primary" android:pathData="M15,23h2.2c0.3,3.6 3.2,6.4 6.8,6.4s6.5,-2.8 6.8,-6.4H33c-0.3,4.4 -3.6,8 -7.9,8.5V35h-2.2v-3.5C18.6,31 15.3,27.4 15,23z" />
+</vector>

@@ -12,4 +12,16 @@
             android:targetPackage="com.adi6499.expenses"
             android:targetClass="com.adi6499.expenses.MainActivity" />
     </shortcut>
+    <shortcut
+        android:shortcutId="speak"
+        android:enabled="true"
+        android:icon="@drawable/ic_widget_speak"
+        android:shortcutShortLabel="@string/widget_speak"
+        android:shortcutLongLabel="@string/shortcut_speak_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="expenses://speak"
+            android:targetPackage="com.adi6499.expenses"
+            android:targetClass="com.adi6499.expenses.MainActivity" />
+    </shortcut>
 </shortcuts>

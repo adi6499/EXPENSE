@@ -1,9 +1,15 @@
 // The Insights tab: spending over time, by category, income vs spending, biggest expenses.
 import { store } from './store.js';
 import * as L from './logic.js';
-import { $, esc, icon, segmented, bindSegmented, haptic } from './ui.js';
+import { $, esc, icon, tile, segmented, bindSegmented, haptic } from './ui.js';
 import { bars, donut } from './charts.js';
 import { txRow } from './rows.js';
+import { openTrips } from './trips.js';
+import { openPeople } from './people.js';
+import { openBills } from './bills.js';
+import { openMonthPicture } from './summary.js';
+
+const FREQUENCY_SHORT = { weekly: 'Every week', monthly: 'Every month', yearly: 'Every year' };
 
 const KIND_OPTIONS = [{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }];
 const PREVIOUS_LABEL = { week: 'last week', month: 'last month', year: 'last year' };
@@ -41,6 +47,7 @@ export function createInsights(root, { openEditor, showActivity }) {
     const body = $('.insights-body', root);
     if (!inPeriod.length) {
       body.innerHTML = `<div class="card"><div class="empty">${icon('chart-bar')}<strong>Nothing here yet</strong>No transactions in this ${s.kind}.</div></div>`;
+      body.insertAdjacentHTML('beforeend', extrasHTML());
       return;
     }
 
@@ -124,7 +131,39 @@ export function createInsights(root, { openEditor, showActivity }) {
       <div class="section">
         <div class="section-title"><h2>Biggest expenses</h2></div>
         <div class="list">${biggest.map(x => txRow(x, { swipe: false, showDate: true })).join('')}</div>
-      </div>` : ''}`;
+      </div>` : ''}
+
+      ${s.kind === 'month' ? `<div style="padding:4px 16px 4px"><button class="btn secondary" data-picture="${range.start}">${icon('image-square')} Share ${esc(L.parseISO(range.start).toLocaleDateString('en-IN', { month: 'long' }))} as a Picture</button></div>` : ''}`;
+    body.insertAdjacentHTML('beforeend', extrasHTML());
+  }
+
+  /** Regular payments found in your spending, and links to trips, people and bills. */
+  function extrasHTML() {
+    const subs = L.detectSubscriptions(store.state.transactions);
+    const perMonth = subs.reduce((sum, x) => sum + x.perMonth, 0);
+    const tags = L.tagSummaries(store.state.transactions).length;
+    const people = L.personBalances(store.state.transactions).filter(p => p.balance).length;
+    const bills = store.state.bills.filter(b => !b.paid).length;
+    return `
+      ${subs.length ? `
+      <div class="section" style="margin-top:12px">
+        <div class="section-title"><h2>Regular payments</h2></div>
+        <div class="list">${subs.slice(0, 8).map(x => {
+          const c = store.category(x.categoryId);
+          return `<div class="row">${tile(c.icon, c.color, 'lg')}<div class="row-main"><div class="row-text">
+            <div class="row-title">${esc(x.name)}</div>
+            <div class="row-sub">${esc(FREQUENCY_SHORT[x.frequency])} · next ${esc(L.shortDate(x.nextDate))}</div>
+          </div><span class="tx-amount">${esc(store.money(x.amount))}</span></div></div>`;
+        }).join('')}</div>
+        <div class="section-footer">Found in your spending: the same payee, a steady amount, at a regular gap. About ${esc(store.money(perMonth))} a month in all.</div>
+      </div>` : ''}
+      <div class="section" style="margin-top:12px">
+        <div class="list">
+          <button class="row tap" data-open="trips">${tile('airplane-tilt', 'cyan')}<div class="row-main"><span class="row-title" style="flex:1">Trips &amp; Events</span>${tags ? `<span class="row-value">${tags}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="people">${tile('hand-coins', 'teal')}<div class="row-main"><span class="row-title" style="flex:1">Lent &amp; Borrowed</span>${people ? `<span class="row-value">${people}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="bills">${tile('receipt', 'orange')}<div class="row-main"><span class="row-title" style="flex:1">Bills</span>${bills ? `<span class="row-value">${bills}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+        </div>
+      </div>`;
   }
 
   bindSegmented(root, (name, value) => {
@@ -136,6 +175,13 @@ export function createInsights(root, { openEditor, showActivity }) {
   });
 
   root.addEventListener('click', e => {
+    const open = e.target.closest('[data-open]');
+    if (open) {
+      ({ trips: openTrips, people: openPeople, bills: openBills })[open.dataset.open]();
+      return;
+    }
+    const picture = e.target.closest('[data-picture]');
+    if (picture) { openMonthPicture(picture.dataset.picture); return; }
     const step = e.target.closest('[data-step]');
     if (step && !step.disabled) {
       s.offset = Math.min(0, s.offset + Number(step.dataset.step));

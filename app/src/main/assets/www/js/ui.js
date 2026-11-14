@@ -134,9 +134,10 @@ export function openSheet({ html = '', size = 'large', className = '', onClose, 
 }
 
 /** Sheet with the standard iOS header: [Cancel]  Title  [Done]. */
-export function openFormSheet({ title, html, cancelText = 'Cancel', doneText = 'Done', onDone, onMount, size = 'large', doneDisabled = false }) {
+export function openFormSheet({ title, html, cancelText = 'Cancel', doneText = 'Done', onDone, onMount, onClose, size = 'large', doneDisabled = false }) {
   const handle = openSheet({
     size,
+    onClose,
     html: `
       <header class="sheet-header" data-drag>
         <button class="nav-btn sheet-cancel">${esc(cancelText)}</button>
@@ -153,6 +154,34 @@ export function openFormSheet({ title, html, cancelText = 'Cancel', doneText = '
   });
   if (onMount) onMount(handle);
   return handle;
+}
+
+/** Asks for a short piece of text (a tag, a name). Resolves the text, or null when cancelled. */
+export function promptText({ title, placeholder = '', value = '', doneText = 'Done', maxLength = 40 }) {
+  return new Promise(resolve => {
+    let result = null;
+    const done = h => {
+      const input = $('.prompt-input', h.el);
+      const text = input ? input.value.trim() : '';
+      if (!text) return false;
+      result = text;
+      return true;
+    };
+    const handle = openFormSheet({
+      title,
+      doneText,
+      size: 'auto',
+      html: `<div class="section"><div class="list"><input class="prompt-input" type="text" maxlength="${maxLength}" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="${esc(placeholder)}" value="${esc(value)}"></div></div>`,
+      onMount: h => {
+        const input = $('.prompt-input', h.el);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter' && done(h)) h.close('done'); });
+        setTimeout(() => input.focus(), 350);
+      },
+      onDone: done,
+      onClose: () => resolve(result),
+    });
+    void handle;
+  });
 }
 
 // ---------- Alerts and action sheets

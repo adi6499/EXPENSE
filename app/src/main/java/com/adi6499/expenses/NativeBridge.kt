@@ -300,6 +300,104 @@ class NativeBridge(private val activity: MainActivity) {
         }
     }
 
+    // ---- Speaking, photos, pictures, bill reminders, widget
+
+    @JavascriptInterface
+    fun canListen(): Boolean = try {
+        activity.packageManager.queryIntentActivities(activity.speechIntent(), 0).isNotEmpty()
+    } catch (_: Exception) {
+        false
+    }
+
+    @JavascriptInterface
+    fun listen(id: String) {
+        activity.runOnUiThread {
+            activity.startFileRequest(id)
+            try {
+                activity.speechLauncher.launch(activity.speechIntent())
+            } catch (e: Exception) {
+                activity.resolve(id, JSONObject().put("ok", false).put("error", "Voice typing isn't available on this phone"))
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun pickPhoto(id: String) {
+        activity.runOnUiThread { activity.pickPhoto(id) }
+    }
+
+    @JavascriptInterface
+    fun savePhoto(id: String, base64: String): Boolean = Photos.save(activity, id, base64)
+
+    @JavascriptInterface
+    fun deletePhoto(id: String) = Photos.delete(activity, id)
+
+    @JavascriptInterface
+    fun cleanPhotos(keepJson: String) {
+        Thread { Photos.clean(activity, keepJson) }.start()
+    }
+
+    /** Shares a picture (the monthly summary) through the share sheet. */
+    @JavascriptInterface
+    fun shareBase64(id: String, fileName: String, mimeType: String, base64: String) {
+        try {
+            val dir = File(activity.cacheDir, "exports").apply { mkdirs() }
+            val file = File(dir, fileName.replace(Regex("[^A-Za-z0-9._ -]"), "_"))
+            file.writeBytes(android.util.Base64.decode(base64, android.util.Base64.DEFAULT))
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            activity.runOnUiThread {
+                try {
+                    activity.startActivity(Intent.createChooser(send, fileName))
+                    activity.resolve(id, JSONObject().put("ok", true))
+                } catch (e: Exception) {
+                    activity.resolve(id, JSONObject().put("ok", false).put("error", "No app to share with"))
+                }
+            }
+        } catch (e: Exception) {
+            activity.resolve(id, JSONObject().put("ok", false).put("error", e.message ?: "Could not share"))
+        }
+    }
+
+    /** Lets the person choose where to save a picture. */
+    @JavascriptInterface
+    fun saveBase64(id: String, fileName: String, mimeType: String, base64: String) {
+        val bytes = try { android.util.Base64.decode(base64, android.util.Base64.DEFAULT) } catch (_: Exception) { null }
+        activity.runOnUiThread {
+            if (bytes == null) {
+                activity.resolve(id, JSONObject().put("ok", false).put("error", "Could not read the picture"))
+                return@runOnUiThread
+            }
+            activity.startFileRequest(id, null, bytes)
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mimeType
+                putExtra(Intent.EXTRA_TITLE, fileName)
+            }
+            try {
+                activity.createDocumentLauncher.launch(intent)
+            } catch (e: Exception) {
+                activity.resolve(id, JSONObject().put("ok", false).put("error", "No app on this phone can save files"))
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun setBillReminders(json: String) {
+        BillReminders.save(activity, json)
+        BillReminders.schedule(activity)
+    }
+
+    @JavascriptInterface
+    fun updateWidget(today: String, month: String, line: String, zero: String) {
+        ExpensesWidget.save(activity, today, month, line, zero)
+        ExpensesWidget.refresh(activity)
+    }
+
     /** Text shared to Expenses from another app (a bank message), handed over once. */
     @JavascriptInterface
     fun consumeSharedText(): String {
