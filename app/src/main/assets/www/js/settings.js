@@ -16,6 +16,7 @@ import { openQuickAdds, applyPrivacy } from './easy.js';
 import { openFamily, familyOn } from './family.js';
 import { LANGUAGES, setLanguage } from './i18n.js';
 import { syncBillReminders } from './bills.js';
+import { openPlan } from './plan.js';
 
 const APPEARANCE_LABELS = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 
@@ -63,6 +64,7 @@ ${showInstall ? `
           ${row({ id: 'family', iconName: 'users', color: 'blue', title: 'Family Sharing', value: familyOn() ? s.memberName : 'Off' })}
           ${row({ id: 'payday', iconName: 'calendar-check', color: 'green', title: 'Salary Day', value: s.payday ? (s.payday >= 31 ? 'Last day' : ordinal(s.payday)) : 'Off' })}
           ${app ? switchRow({ id: 'evening', iconName: 'moon', color: 'indigo', title: 'Evening Note', checked: s.evening.enabled }) : ''}
+          ${switchRow({ id: 'nudges', iconName: 'robot', color: 'purple', title: 'Money Buddy Tips', checked: s.nudges !== false })}
           ${switchRow({ id: 'hide', iconName: 'eye-slash', color: 'gray', title: 'Hide Amounts', checked: s.hideAmounts })}
         </div>
         <div class="section-footer">${app ? 'The evening note tells you at 9 at night what you spent today. ' : ''}Hide Amounts blurs every amount until you turn it off — handy when someone is looking.</div>
@@ -71,7 +73,7 @@ ${showInstall ? `
       <div class="section">
         <div class="section-header">Plan</div>
         <div class="list">
-          ${row({ id: 'budgets', iconName: 'target', color: 'red', title: 'Budgets', value: st.budgets.monthly ? store.money(st.budgets.monthly) : 'Off' })}
+          ${row({ id: 'budgets', iconName: 'calendar-check', color: 'red', title: 'Monthly Plan', value: st.budgets.income ? store.money(st.budgets.income) : 'Set up' })}
           ${row({ id: 'repeating', iconName: 'repeat', color: 'indigo', title: 'Repeating', value: st.recurring.length ? String(st.recurring.length) : '' })}
         </div>
       </div>
@@ -142,8 +144,8 @@ ${messagesSection(st.sms)}
       };
     } else if (app && canReadMessages() && !smsOn) {
       next = { title: 'Bank messages are off', text: 'Turn them on and your spending adds itself — no typing.', button: 'Turn On', go: 'sms-on' };
-    } else if (!st.budgets.monthly) {
-      next = { title: 'No monthly budget', text: 'Set one to see what is safe to spend each day.', button: 'Set Budget', go: 'budgets' };
+    } else if (!st.budgets.income) {
+      next = { title: 'No monthly plan', text: 'Split your income into rent, food, travel… and see what’s left of each.', button: 'Plan My Month', go: 'budgets' };
     }
     const where = s.sync.enabled ? 'synced to your Google Drive' : `saved on this ${app ? 'phone' : 'device, in this browser'}`;
     const copied = lastCopy ? `last backup ${copyAge === 0 ? 'today' : copyAge === 1 ? 'yesterday' : `${copyAge} days ago`}` : 'no backup yet';
@@ -202,7 +204,7 @@ ${messagesSection(st.sms)}
     if (!target) return;
     const go = target.dataset.go;
     const actions = {
-      budgets: openBudgets,
+      budgets: openPlan,
       repeating: openRepeating,
       categories: openCategories,
       accounts: openAccounts,
@@ -300,6 +302,8 @@ ${messagesSection(st.sms)}
     } else if (input.dataset.switch === 'sms-auto') {
       store.setSms({ autoAdd: input.checked });
       if (input.checked) toast('Bank transactions will be added as they arrive', { iconName: 'lightning' });
+    } else if (input.dataset.switch === 'nudges') {
+      store.setSetting('nudges', input.checked);
     } else if (input.dataset.switch === 'hide') {
       store.setSetting('hideAmounts', input.checked);
       applyPrivacy();

@@ -1456,3 +1456,188 @@ export function yearReview(transactions, year, today = todayISO()) {
     perDay: Math.round(t.expense / days / 100) * 100, noSpendDays: Math.max(0, days - spendDays), days,
   };
 }
+
+// ---------- 1.7: the monthly plan — fixed income, split into amounts for each kind of spending, and what's left
+
+/** The plan's two groups. A category missing from a person's list is created when they plan an amount for it. */
+export const PLAN_GROUPS = [
+  { key: 'fixed', label: 'Fixed every month', ids: ['rent', 'emi', 'bills', 'education', 'subscriptions'] },
+  { key: 'daily', label: 'Day to day', ids: ['groceries', 'food', 'transport', 'fuel', 'shopping', 'health', 'entertainment', 'other'] },
+];
+
+export const PLAN_NEW_CATEGORIES = { emi: { id: 'emi', name: 'EMI & Loans', icon: 'bank', color: 'indigo', type: 'expense' } };
+
+/** A share of income suggested for each kind of daily spending when there is no history to go by. */
+const SUGGESTED_SHARE = { groceries: 0.12, food: 0.06, transport: 0.05, fuel: 0.05, shopping: 0.06, health: 0.03, entertainment: 0.03, other: 0.04 };
+
+const round500 = v => Math.round(v / 50000) * 50000;
+
+/**
+ * Suggested amounts for the plan: what was really spent a month (the last 3 whole months), or a share of
+ * income for daily spending when there is no history. { categoryId: paise }.
+ */
+export function suggestPlan(transactions, income, today = todayISO()) {
+  const som = startOfMonth(today);
+  const from = addMonths(som, -3);
+  const to = addDays(som, -1);
+  const months = new Set(inRange(transactions, from, to).map(t => t.date.slice(0, 7))).size || 0;
+  const spent = new Map(byCategory(inRange(transactions, from, to)).map(r => [r.categoryId, r.total]));
+  const out = {};
+  for (const group of PLAN_GROUPS) {
+    for (const id of group.ids) {
+      const history = months ? round500((spent.get(id) || 0) / months) : 0;
+      const share = group.key === 'daily' && income ? round500(income * (SUGGESTED_SHARE[id] || 0)) : 0;
+      const value = months ? history : share; // with a history, only what was really spent
+      if (value > 0) out[id] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * This month against the plan. budgets: { income, categories: { id: planned } }.
+ * Returns null without an income, else { income, planned, saving, spent, left, unplanned, groups: [{ key, label, rows }] }
+ * where each row is { categoryId, planned, spent, left } and left < 0 means over.
+ */
+export function planStatus({ transactions, budgets = {}, settings = {} }, today = todayISO()) {
+  const income = budgets.income || 0;
+  if (!income) return null;
+  const period = settings && Number(settings.payday) > 0 ? payPeriod(Number(settings.payday), today) : { start: startOfMonth(today), end: endOfMonth(today) };
+  const spentBy = new Map(byCategory(inRange(transactions, period.start, period.end)).map(r => [r.categoryId, r.total]));
+  const plannedIds = Object.keys(budgets.categories || {});
+  const groups = PLAN_GROUPS.map(g => ({ key: g.key, label: g.label, rows: [] }));
+  const daily = groups[1];
+  for (const id of plannedIds) {
+    const planned = budgets.categories[id];
+    if (!(planned > 0)) continue;
+    const spent = spentBy.get(id) || 0;
+    const group = groups.find(g => PLAN_GROUPS.find(p => p.key === g.key).ids.includes(id)) || daily;
+    group.rows.push({ categoryId: id, planned, spent, left: planned - spent });
+  }
+  const order = id => { for (const g of PLAN_GROUPS) { const i = g.ids.indexOf(id); if (i >= 0) return i; } return 99; };
+  for (const g of groups) g.rows.sort((a, b) => order(a.categoryId) - order(b.categoryId));
+  const planned = plannedIds.reduce((sum, id) => sum + (budgets.categories[id] > 0 ? budgets.categories[id] : 0), 0);
+  const spent = [...spentBy.values()].reduce((sum, v) => sum + v, 0);
+  const unplanned = [...spentBy.entries()].filter(([id]) => !(budgets.categories || {})[id]).reduce((sum, [, v]) => sum + v, 0);
+  return {
+    income, planned, saving: income - planned, spent, left: income - spent, unplanned,
+    start: period.start, end: period.end, groups: groups.filter(g => g.rows.length),
+  };
+}
+
+// ---------- Money Buddy: plain messages about what you're doing, how you're spending and what you're losing
+// Rules on your own data only (nothing leaves the phone). Each message:
+// { key, tone: 'bad'|'warn'|'info'|'good', icon, title, text, action: { label, go, arg? } }.
+
+const TONE_ORDER = { bad: 0, warn: 1, info: 2, good: 3 };
+const TONE_OF_COLOR = { red: 'bad', orange: 'warn' };
+
+export function buddyMessages(state, { money = v => String(v / 100), categoryName = id => id } = {}, today = todayISO()) {
+  const out = [];
+  const add = m => out.push(m);
+  const month = today.slice(0, 7);
+  const plan = planStatus(state, today);
+
+  // 1. Money going out of the door: charged twice, refunds not back, documents running out
+  for (const a of watchAlerts(state, money, today)) {
+    const go = a.key.startsWith('dbl|') ? 'transactions' : a.key.startsWith('ref|') ? 'refunds' : 'documents';
+    add({ key: `b|${a.key}`, tone: TONE_OF_COLOR[a.color] || 'warn', icon: a.icon, title: a.key.startsWith('dbl|') ? 'Charged twice?' : a.key.startsWith('ref|') ? 'Refund still not back' : 'Renewal due', text: a.text, action: { label: 'Show Me', go } });
+  }
+
+  // 2. The plan: a kind of spending running out too fast, or already over
+  if (plan) {
+    const totalDays = daysBetween(plan.start, plan.end) + 1;
+    const gone = Math.min(1, (daysBetween(plan.start, today) + 1) / totalDays);
+    const daysLeft = Math.max(1, daysBetween(today, plan.end) + 1);
+    for (const g of plan.groups) {
+      for (const r of g.rows) {
+        const name = categoryName(r.categoryId);
+        if (r.left < 0) {
+          add({ key: `b|over|${r.categoryId}|${plan.start}`, tone: 'bad', icon: 'warning-circle', title: `${name}: ${money(-r.left)} over the plan`,
+            text: `You planned ${money(r.planned)} and spent ${money(r.spent)}. The extra comes out of your savings this month.`,
+            action: { label: 'See Where', go: 'category', arg: r.categoryId } });
+        } else if (g.key === 'daily' && r.spent >= r.planned * 0.5 && r.spent / r.planned > gone + 0.2) {
+          add({ key: `b|fast|${r.categoryId}|${plan.start}|${Math.round((r.spent / r.planned) * 10)}`, tone: 'warn', icon: 'gauge', title: `${name} is going fast`,
+            text: `${Math.round((r.spent / r.planned) * 100)}% used with ${daysLeft} day${daysLeft === 1 ? '' : 's'} to go. Keep it to about ${money(Math.floor(r.left / daysLeft / 100) * 100)} a day from here.`,
+            action: { label: 'See Where', go: 'category', arg: r.categoryId } });
+        }
+      }
+    }
+    // The whole month at this pace
+    const daysGone = daysBetween(plan.start, today) + 1;
+    if (daysGone >= 5 && plan.spent > 0) {
+      const pace = Math.round((plan.spent / daysGone) * totalDays / 100) * 100;
+      if (pace > plan.income) {
+        add({ key: `b|pace|${plan.start}|${Math.round(pace / plan.income * 10)}`, tone: 'bad', icon: 'trend-up', title: 'Spending more than comes in',
+          text: `At this pace you’ll spend ${money(pace)} this month — ${money(pace - plan.income)} more than your income.`, action: { label: 'See My Plan', go: 'plan' } });
+      } else if (pace <= plan.planned && plan.saving > 0) {
+        add({ key: `b|ontrack|${plan.start}`, tone: 'good', icon: 'check-circle', title: 'On track',
+          text: `At this pace you’ll keep about ${money(plan.income - pace)} this month. Nice going.`, action: null });
+      }
+    }
+    if (plan.unplanned >= Math.max(100000, plan.income * 0.05)) {
+      add({ key: `b|unplanned|${plan.start}|${Math.round(plan.unplanned / 100000)}`, tone: 'warn', icon: 'question', title: `${money(plan.unplanned)} on things not in your plan`,
+        text: 'That comes straight out of what you meant to save. Add it to the plan, or cut back.', action: { label: 'Edit Plan', go: 'plan' } });
+    }
+  } else if (state.transactions.length >= 5) {
+    add({ key: 'b|noplan', tone: 'info', icon: 'calendar-check', title: 'Plan your month',
+      text: 'Tell me what comes in each month and split it — then I can tell you what’s left of each, every day.', action: { label: 'Plan My Month', go: 'plan' } });
+  }
+
+  // 3. Money you lose: bank charges this month, subscriptions about to renew
+  const feesThisMonth = feesSummary(state.transactions, today).list.filter(t => t.date.startsWith(month));
+  if (feesThisMonth.length) {
+    const total = feesThisMonth.reduce((sum, t) => sum + t.amount, 0);
+    add({ key: `b|fees|${month}|${feesThisMonth.length}`, tone: 'bad', icon: 'bank', title: `You lost ${money(total)} to bank charges`,
+      text: `${feesThisMonth.length} charge${feesThisMonth.length === 1 ? '' : 's'} this month (${feesThisMonth[0].note || 'bank fee'}…). Ask your bank to waive them — many do.`,
+      action: { label: 'Show Me', go: 'fees' } });
+  }
+  for (const s of detectSubscriptions(state.transactions, today)) {
+    const days = daysBetween(today, s.nextDate);
+    if (days >= 0 && days <= 3) {
+      add({ key: `b|renew|${s.name}|${s.nextDate}`, tone: 'info', icon: 'arrows-clockwise', title: `${s.name} renews ${days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}`,
+        text: `${money(s.amount)} again. Still using it? Cancel before then if not.`, action: null });
+    }
+  }
+
+  // 4. Habits worth knowing (and how much they cost)
+  for (const tip of savingsTips(state, { money, categoryName }, today).filter(t => !(t.key === 'fees' && feesThisMonth.length)).slice(0, 2)) {
+    add({ key: `b|tip|${tip.key}|${month}`, tone: 'info', icon: tip.icon, title: tip.title, text: tip.text, action: { label: 'More Tips', go: 'insights' } });
+  }
+  for (const a of computeAlerts({ transactions: state.transactions, budgets: plan ? {} : state.budgets, categoryName }, money, today)) {
+    add({ key: `b|${a.key}`, tone: 'warn', icon: a.icon, title: 'Heads up', text: a.text, action: null });
+  }
+
+  // 5. Small wins
+  const weekStart = addDays(today, -6);
+  const spendDays = new Set(state.transactions.filter(t => t.type === 'expense' && t.date >= weekStart && t.date <= today).map(t => t.date)).size;
+  const quietDays = 7 - spendDays;
+  if (state.transactions.length >= 10 && quietDays >= 2) {
+    add({ key: `b|quiet|${today}`, tone: 'good', icon: 'leaf', title: `${quietDays} no-spend days this week`, text: 'Days with nothing spent add up fast. Keep it going.', action: null });
+  }
+
+  return out
+    .filter(m => !(state.settings && state.settings.dismissed && state.settings.dismissed[m.key]))
+    .sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone]);
+}
+
+/** A word right after adding an expense: a plan running low or used up, outside the plan, or a big one. */
+export function nudgeFor(state, tx, { money = v => String(v / 100), categoryName = id => id } = {}, today = todayISO()) {
+  if (!tx || tx.type !== 'expense') return null;
+  const plan = planStatus(state, today);
+  const name = categoryName(tx.categoryId);
+  if (plan && tx.date >= plan.start && tx.date <= plan.end) {
+    const row = plan.groups.flatMap(g => g.rows).find(r => r.categoryId === tx.categoryId);
+    if (row) {
+      const before = row.spent - tx.amount;
+      const daysLeft = Math.max(1, daysBetween(today, plan.end) + 1);
+      if (row.left < 0 && before <= row.planned) return { tone: 'bad', text: `${name} is used up — ${money(-row.left)} over. The rest comes out of savings.` };
+      if (row.spent >= row.planned * 0.8 && before < row.planned * 0.8) return { tone: 'warn', text: `${name}: ${Math.round((row.spent / row.planned) * 100)}% used, ${daysLeft} day${daysLeft === 1 ? '' : 's'} left — about ${money(Math.floor(row.left / daysLeft / 100) * 100)} a day from here.` };
+      return null;
+    }
+    if (plan.planned) return { tone: 'warn', text: `${name} isn’t in your plan — ${money(tx.amount)} comes out of savings.` };
+  }
+  const income = (state.budgets && state.budgets.income) || 0;
+  if (income && tx.amount >= income * 0.1) return { tone: 'info', text: `That’s a big one: ${Math.round((tx.amount / income) * 100)}% of your monthly income.` };
+  return null;
+}

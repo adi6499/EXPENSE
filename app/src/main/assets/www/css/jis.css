@@ -1407,3 +1407,391 @@ html.ju .icon-grid button.on {
   overflow: visible !important;
   line-height: 1.4;
 }
+
+/* ---------- 19. The monthly plan */
+.setup-card {
+  text-align: center;
+  padding: 26px 22px 22px;
+}
+
+.setup-card .setup-ic {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  border-radius: 18px;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 30px;
+}
+
+.setup-card h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.setup-card p {
+  margin: 0 auto 16px;
+  max-width: 420px;
+  font-size: 14.5px;
+}
+
+.setup-card .ju-btn {
+  width: 100%;
+  height: 52px;
+  font-size: 16px;
+}
+
+.plan-top {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.plan-top > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--hover);
+}
+
+.plan-top small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.plan-top b {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-card .ju-group {
+  padding: 14px 2px 4px;
+}
+
+.plan-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.plan-row + .plan-row {
+  box-shadow: 0 -1px 0 var(--line);
+}
+
+.plan-row > .tile {
+  margin-top: 2px;
+}
+
+.plan-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.plan-name {
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-left {
+  flex: none;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.plan-sub {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+
+.plan-unplanned {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.plan-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 12px;
+  padding-top: 12px;
+  box-shadow: 0 -1px 0 var(--line);
+  font-weight: 650;
+}
+
+.plan-foot strong {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* The Set Up My Month guide */
+.plan-sheet .sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.pl-count {
+  justify-self: end;
+  padding-right: 12px;
+}
+
+.pl-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px 0 6px;
+}
+
+.pl-dots i {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background-color 0.25s;
+}
+
+.pl-dots i.on {
+  background: var(--ink);
+}
+
+.pl-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+}
+
+.pl-q h1 {
+  margin: 8px 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.pl-q p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+
+.pl-body .amount-display {
+  margin: 18px 0 6px;
+}
+
+.pl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pl-chips .ju-chip {
+  min-height: 46px;
+  padding: 0 18px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.pl-rows {
+  margin: 0;
+}
+
+.pl-amt {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.pl-amt.none {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pl-left {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-weight: 650;
+}
+
+.pl-left strong {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.pl-pad[hidden] {
+  display: none;
+}
+
+.pl-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px calc(12px + var(--safe-bottom));
+}
+
+.pl-foot .ju-btn {
+  flex: 1;
+  height: 50px;
+}
+
+.pl-foot .pl-back {
+  flex: 0 0 auto;
+}
+
+.pl-foot .ju-btn:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- 20. Money Buddy */
+.buddy-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.buddy-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.buddy-head b {
+  display: block;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.buddy-head small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.buddy-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--ink-text);
+  font-size: 22px;
+}
+
+.buddy-msg {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--hover);
+}
+
+.buddy-msg + .buddy-msg {
+  margin-top: 10px;
+}
+
+.buddy-ic {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 11px;
+  font-size: 19px;
+}
+
+.buddy-ic.bad { background: var(--bad-soft); color: var(--bad); }
+.buddy-ic.warn { background: var(--warn-soft); color: var(--warn); }
+.buddy-ic.blue { background: var(--blue-soft); color: var(--blue); }
+.buddy-ic.ok { background: var(--ok-soft); color: var(--ok); }
+
+.buddy-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.buddy-body b {
+  display: block;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.buddy-body p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.buddy-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.buddy-acts:empty {
+  display: none;
+}
+
+/* The buddy's page: a short chat */
+.buddy-intro {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 4px 16px 14px;
+}
+
+.buddy-say {
+  padding: 12px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.buddy-list {
+  margin: 0 16px 14px;
+}
+
+.buddy-list .buddy-msg {
+  background: var(--card);
+  box-shadow: var(--shadow);
+}

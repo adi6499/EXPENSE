@@ -56,6 +56,13 @@ install it and start adding expenses. Everything is saved on the phone.
   UPI (Android: hands the payment to your UPI app, then asks whether it went through), a shopping list that turns into
   expenses, documents & renewals with photos and reminders, savings tips from your own spending, and your year on
   one page (share picture + printable statement). All under Insights → Tools.
+- **1.7.0, plan the month** (`js/plan.js`, `js/buddy.js`): a five-step "Set Up My Month" — fixed monthly income, salary
+  day, fixed costs (rent, EMIs, bills, fees, subscriptions) and day-to-day amounts (suggested from your own spending)
+  — and a plan card on Summary showing what's left of each and what's left this month. Summary is now short: the
+  answer, Money Buddy, the plan, what needs doing, the latest few, and a "More" list. **Money Buddy** tells you in plain
+  words how you're spending and what you're losing (plans running low or over, spending outside the plan, the month's
+  pace, bank charges, double charges, refunds, renewals, tips), says a word right after you add an expense, and carries
+  its top message into the evening note. Simple rules on your own data — no AI service, nothing sent anywhere.
 - **Split a bill**: Split in the editor shares an expense equally; your share is spending, the rest goes to Lent &
   Borrowed, and each person gets a WhatsApp picture with a UPI "scan to pay" code for their exact share
   (js/qr.js is the QR encoder; Settings → Payments → Your UPI ID).

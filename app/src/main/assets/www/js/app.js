@@ -20,6 +20,8 @@ import {
   applyPrivacy, maybeShowWhatsNew, doQuickAdd, syncWidgetQuick, openQuickAdds,
 } from './easy.js';
 import { setLanguage } from './i18n.js';
+import { openPlan } from './plan.js';
+import { nudgeAfterAdd } from './buddy.js';
 import { refresh as refreshMagnifier, clear as clearMagnifier } from './magnify.js';
 import { turnOn as turnOnMessages } from './messages.js';
 import { openEmailSetup } from './email.js';
@@ -252,7 +254,7 @@ function quickFromWidget(action) {
 /** The Getting started list on Summary: each step's button. */
 function quickStartStep(key) {
   if (key === 'add') addNew();
-  else if (key === 'budget') openBudgets();
+  else if (key === 'budget') openPlan();
   else if (key === 'sms') turnOnMessages().then(() => renderAll());
   else if (key === 'email') openEmailSetup();
   else if (key === 'quick') openQuickAdds();
@@ -401,6 +403,12 @@ function boot() {
   };
   store.subscribe(renderAll);
   store.subscribe(syncPhoneExtras);
+  store.subscribe(() => {
+    const t = store.lastAdded;
+    if (!t) return;
+    store.lastAdded = null;
+    nudgeAfterAdd(t);
+  });
   store.subscribe(scheduleSync);
   $$('.tab').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.tab !== activeTab) haptic('selection');

@@ -78,7 +78,7 @@ export function createDefaultState() {
     categories: defaultCategories(),
     accounts: defaultAccounts(),
     recurring: [],
-    budgets: { monthly: 0, categories: {} },
+    budgets: { monthly: 0, categories: {}, income: 0 },   // income: the fixed monthly income the plan splits
     bills: [],        // { id, name, amount, minDue, dueDate, paid, autopay, key, source }
     goals: [],        // { id, name, target, byDate, added: [{ amount, date }], createdAt, updatedAt }
     emis: [],         // { id, name, amount, months, day, startDate, accountId, ruleId, paidBefore }
@@ -113,6 +113,7 @@ export function createDefaultState() {
       seenVersion: '',    // the What's new screen was shown for this version
       quickStart: { hidden: false },                         // the Getting started checklist
       glassLevel: 100,    // the kit's glass: 0 solid, 30 frosted, 100 clear (default)
+      nudges: true,       // Money Buddy says a word after you add an expense
       payday: 0,          // salary day (1–31): "safe to spend" counts to it; 0 = the calendar month
       upiContacts: {},    // name (lower case) → UPI ID, for Pay with UPI (kept on this device)
     },
@@ -295,6 +296,7 @@ export const store = {
     const by = this.state.settings.sync.enabled && this.state.settings.memberName ? { by: this.state.settings.memberName } : {};
     const t = { id: L.uid(), createdAt: Date.now(), note: '', ...by, ...tx, updatedAt: Date.now() };
     this.state.transactions.push(t);
+    this.lastAdded = t; // for Money Buddy's word after adding (not saved)
     if (t.accountId) this.state.settings.lastAccountId = t.accountId;
     this.commit();
     return t;
@@ -442,6 +444,19 @@ export const store = {
   setCategoryBudget(id, minor) {
     if (minor > 0) this.state.budgets.categories[id] = minor;
     else delete this.state.budgets.categories[id];
+    this.commit();
+  },
+
+  /** The monthly plan: fixed income, an amount for each kind of spending (0 = none) and the salary day.
+   *  The monthly budget becomes everything planned, so "safe to spend" follows the plan. */
+  savePlan({ income, amounts, payday }) {
+    for (const [id, v] of Object.entries(amounts)) {
+      if (v > 0 && !this.state.categories.some(c => c.id === id) && L.PLAN_NEW_CATEGORIES[id]) this.state.categories.push({ ...L.PLAN_NEW_CATEGORIES[id] });
+    }
+    const categories = {};
+    for (const [id, v] of Object.entries(amounts)) if (v > 0) categories[id] = v;
+    this.state.budgets = { ...this.state.budgets, income, categories, monthly: Object.values(categories).reduce((sum, v) => sum + v, 0) };
+    if (payday !== undefined) this.state.settings.payday = payday;
     this.commit();
   },
 

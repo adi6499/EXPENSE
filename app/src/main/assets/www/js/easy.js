@@ -5,7 +5,7 @@ import { native } from './native.js';
 import * as L from './logic.js';
 import { esc, icon, tile, pushPage, actionSheet, toast, haptic, promptText, pickAmount, openSheet } from './ui.js';
 
-export const APP_VERSION = '1.6.0'; // the What's new list's version (a small fix release keeps it, so the list isn't shown again)
+export const APP_VERSION = '1.7.0'; // the What's new list's version (a small fix release keeps it, so the list isn't shown again)
 const settings = () => store.state.settings;
 
 function livePage(options) {
@@ -211,7 +211,7 @@ function steps() {
   const s = st.settings;
   return [
     { key: 'add', done: st.transactions.length > 0, title: 'Add your first expense', button: 'Add' },
-    { key: 'budget', done: !!st.budgets.monthly, title: 'Set a monthly budget', button: 'Set' },
+    { key: 'budget', done: !!st.budgets.income, title: 'Plan your month', button: 'Plan' },
     native.isApp
       ? { key: 'sms', done: !!st.sms.enabled, title: 'Let it read bank messages', button: 'Turn On' }
       : { key: 'email', done: !!(s.email.url && s.email.enabled), title: 'Connect bank emails', button: 'Connect' },
@@ -243,17 +243,11 @@ export function hideChecklist() {
 // ---------- What's new (once, after an update)
 
 const NEW_THINGS = [
-  ['bank', 'Bank charges', 'Every fee your bank and cards take, added up for the year.'],
-  ['copy', 'Charged twice?', 'A warning when the same payment goes through twice.'],
-  ['arrow-u-up-left', 'Refunds', 'Mark a purchase “Expect a Refund” — you’ll know when the money is back.'],
-  ['gift', 'Cashback & points', 'Cashback credits and card reward points in one place.'],
-  ['calendar-check', 'Salary day', '“Safe to spend” counts down to your salary. Settings → Everyday.'],
-  ['qr-code', 'Pay with UPI', 'Pay someone back from Lent & Borrowed, or from the add screen’s More.'],
-  ['shopping-cart-simple', 'Shopping list', 'Plan with prices; tick it off and it becomes an expense.'],
-  ['files', 'Documents & renewals', 'Insurance, PUC, licence, passport — with a reminder before each runs out.'],
-  ['lightbulb', 'Ways to save', 'Plain tips from your own spending, on Insights.'],
-  ['calendar-blank', 'Your year', 'Your year on one page, to share — and a printable statement.'],
-];
+  ['calendar-check', 'Plan your month', 'Your income, split into rent, EMIs, food, travel… and what’s left of each, every day.'],
+  ['house', 'A simpler Summary', 'What you spent, your plan, what needs doing — and everything else one tap away under More.'],
+  ['robot', 'Money Buddy', 'Tells you how you’re spending and what you’re losing: plans running low, bank charges, double charges, renewals.'],
+  ['gauge', 'A word after adding', '“Food: 82% used, 12 days left — about ₹90 a day from here.” Settings → Money Buddy Tips.'],
+]
 
 export function maybeShowWhatsNew() {
   const s = settings();

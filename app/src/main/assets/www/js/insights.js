@@ -16,6 +16,7 @@ import { openNetWorth, openTax } from './worth.js';
 import { openChallenges } from './easy.js';
 import { openFamily, familyOn } from './family.js';
 import { openFees, openRefunds, openCashback, openShopping, openDocuments, openYear, tipsHTML } from './more.js';
+import { openBuddy, buddyMessages } from './buddy.js';
 
 const FREQUENCY_SHORT = { weekly: 'Every week', monthly: 'Every month', yearly: 'Every year' };
 
@@ -161,6 +162,7 @@ export function createInsights(root, { openEditor, showActivity }) {
       ['cashback', 'gift', 'pink', 'Cashback & Points', (() => { const c = L.cashbackSummary(st.transactions, st.sms.points); return c.total ? `${store.money(c.total)} this year` : 'None yet'; })()],
       ['fees', 'bank', 'gray', 'Bank Charges', (() => { const f = L.feesSummary(st.transactions); return f.total ? `${store.money(f.total)} this year` : 'None this year'; })()],
       ['year', 'calendar-check', 'red', 'Your Year', `${L.todayISO().slice(0, 4)} so far`],
+      ['buddy', 'robot', 'purple', 'Money Buddy', (() => { const m = buddyMessages().length; return m ? `${m} thing${m === 1 ? '' : 's'} to know` : 'All good'; })()],
     ];
     return `
       ${subs.length ? `<div class="ju-card home-card"><div class="head"><h2>Regular payments</h2></div>
@@ -191,7 +193,7 @@ export function createInsights(root, { openEditor, showActivity }) {
   root.addEventListener('click', e => {
     const open = e.target.closest('[data-open]');
     if (open) {
-      ({ trips: openTrips, people: openPeople, bills: openBills, calendar: openCalendar, goals: openGoals, emis: openEmis, warranties: openWarranties, claims: openClaims, worth: openNetWorth, tax: openTax, challenges: openChallenges, family: openFamily, shopping: openShopping, documents: openDocuments, refunds: openRefunds, cashback: openCashback, fees: openFees, year: openYear })[open.dataset.open]();
+      ({ trips: openTrips, people: openPeople, bills: openBills, calendar: openCalendar, goals: openGoals, emis: openEmis, warranties: openWarranties, claims: openClaims, worth: openNetWorth, tax: openTax, challenges: openChallenges, family: openFamily, shopping: openShopping, documents: openDocuments, refunds: openRefunds, cashback: openCashback, fees: openFees, year: openYear, buddy: openBuddy })[open.dataset.open]();
       return;
     }
     if (e.target.closest('[data-ins-add]')) { openEditor(); return; }

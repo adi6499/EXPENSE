@@ -231,7 +231,11 @@ export function planReminders(now = Date.now()) {
       const day = L.parseISO(L.addDays(today, i));
       const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), evening.hour || 21, 0).getTime();
       if (at <= now) continue;
-      const note = i === 0 ? L.eveningSummary(store.state, money, today) : { title: 'Anything to add from today?', text: 'Tap to add what you spent — it takes two seconds.' };
+      let note = i === 0 ? L.eveningSummary(store.state, money, today) : { title: 'Anything to add from today?', text: 'Tap to add what you spent — it takes two seconds.' };
+      if (i === 0) {
+        const top = L.buddyMessages(store.state, { money, categoryName: id => store.category(id).name }, today)[0];
+        if (top && top.tone !== 'good') note = { title: note.title, text: `${top.title}. ${top.text}` };
+      }
       list.push({ id: `eve|${L.addDays(today, i)}`, title: note.title, text: note.text, at, open: 'home' });
     }
   }
