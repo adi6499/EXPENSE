@@ -5,7 +5,7 @@ import { native } from './native.js';
 import * as L from './logic.js';
 import { esc, icon, tile, pushPage, actionSheet, toast, haptic, promptText, pickAmount, openSheet } from './ui.js';
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.5.0'; // the What's new list's version (a small fix release keeps it, so the list isn't shown again)
 const settings = () => store.state.settings;
 
 function livePage(options) {

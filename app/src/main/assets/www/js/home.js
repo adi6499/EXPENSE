@@ -69,7 +69,7 @@ export function createHome(root, { openEditor, goTo, openBudgets, quickStartStep
     const pct = budget ? t.expense / budget : 0;
     const amountText = store.money(t.expense);
     let line;
-    if (!budget) line = `spent in ${esc(monthName)}`;
+    if (!budget) line = `spent in ${esc(monthName)} · <button class="hero-link" data-act="budget">Set a budget</button>`;
     else if (t.expense <= budget) line = `spent in ${esc(monthName)} · <strong>${esc(store.money(budget - t.expense))}</strong> left of ${esc(store.money(budget))}`;
     else line = `spent in ${esc(monthName)} · <strong class="over">${esc(store.money(t.expense - budget))}</strong> over your ${esc(store.money(budget))} budget`;
     const safe = L.safeToSpend(st);
@@ -85,7 +85,6 @@ export function createHome(root, { openEditor, goTo, openBudgets, quickStartStep
           <button class="ju-btn accent" data-act="add">${icon('plus')} Add</button>
           ${canScan() ? `<button class="ju-btn soft" data-act="scan">${icon('scan')} Scan Bill</button>` : ''}
           ${canSpeak() ? `<button class="ju-btn soft" data-act="speak">${icon('microphone')} Speak</button>` : ''}
-          ${!budget ? `<button class="ju-btn soft" data-act="budget">${icon('target')} Set a Budget</button>` : ''}
         </div>
       </div>`;
   }
