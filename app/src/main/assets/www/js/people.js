@@ -1,10 +1,11 @@
 // Money lent and borrowed: who owes you, whom you owe, settling up and a friendly WhatsApp reminder.
 import { store } from './store.js';
 import * as L from './logic.js';
-import { esc, icon, tile, pushPage, actionSheet } from './ui.js';
+import { esc, icon, tile, pushPage, actionSheet, toast } from './ui.js';
 import { openEditor } from './editor.js';
 import { nav } from './nav.js';
 import { askToPay } from './split.js';
+import { payWithUpi, canPayUpi } from './more.js';
 
 function personRow(p) {
   const owesYou = p.balance > 0;
@@ -43,6 +44,7 @@ async function personActions(key) {
   const owed = Math.abs(p.balance);
   const actions = [];
   if (p.balance > 0) actions.push({ text: `Got ${store.money(owed)} Back`, value: 'got-all', icon: 'check-circle' });
+  if (p.balance < 0 && canPayUpi()) actions.push({ text: `Pay ${store.money(owed)} with UPI`, value: 'upi', icon: 'qr-code' });
   if (p.balance < 0) actions.push({ text: `Paid ${store.money(owed)} Back`, value: 'paid-all', icon: 'check-circle' });
   actions.push({ text: 'Got Some Money', value: 'got', icon: 'arrow-down' });
   actions.push({ text: 'Gave Money', value: 'gave', icon: 'arrow-up' });
@@ -60,6 +62,13 @@ async function personActions(key) {
   else if (choice === 'gave') loan('out');
   else if (choice === 'list') nav.showActivity({ person: p.name });
   else if (choice === 'remind') askToPay({ name: p.name, amount: owed, note: '' });
+  else if (choice === 'upi') {
+    if (await payWithUpi({ name: p.name, amount: owed, note: 'Paying back' })) {
+      const upi = store.state.accounts.find(a => a.id === 'upi');
+      store.addTransaction({ type: 'loan', direction: 'out', person: p.name, amount: owed, accountId: upi ? upi.id : store.state.settings.lastAccountId, date: L.todayISO(), note: '' });
+      toast(`Paid ${store.money(owed)} back to ${p.name}`, { iconName: 'check-circle' });
+    }
+  }
 }
 
 export function openPeople() {

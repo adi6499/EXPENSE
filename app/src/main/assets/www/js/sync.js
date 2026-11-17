@@ -68,8 +68,8 @@ async function postJson(body) {
 function signature(state) {
   const pick = list => (list || []).map(r => `${r.id}:${r.updatedAt || r.createdAt || 0}`).sort().join(',');
   const s = { ...(state.settings || {}) };
-  for (const key of ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart']) delete s[key];
-  return JSON.stringify([pick(state.transactions), pick(state.bills), pick(state.goals), pick(state.emis), pick(state.recurring), pick(state.challenges),
+  for (const key of ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart', 'glassLevel', 'upiContacts']) delete s[key];
+  return JSON.stringify([pick(state.transactions), pick(state.bills), pick(state.goals), pick(state.emis), pick(state.recurring), pick(state.challenges), pick(state.shopping), pick(state.documents),
     JSON.stringify(state.categories), JSON.stringify(state.accounts), Object.keys(state.deleted || {}).sort().join(','),
     JSON.stringify(state.budgets), JSON.stringify(s), (state.sms && state.sms.pending || []).map(p => p.id).sort().join(',')]);
 }

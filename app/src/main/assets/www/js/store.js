@@ -14,6 +14,7 @@ function defaultSms() {
     pending: [],      // found in messages, waiting to be checked and added
     payees: {},       // what was learned per payee (see "Learning" in sms.js)
     balances: {},     // 'HDFC Bank|1234' → { amount, kind: 'balance'|'limit', time } from the latest message
+    points: {},       // 'HDFC Bank|1234' → { bank, last4, points, earned, time } reward points from card messages
     accounts: {},     // 'HDFC Bank|1234' → account chosen for it
   };
 }
@@ -83,6 +84,8 @@ export function createDefaultState() {
     emis: [],         // { id, name, amount, months, day, startDate, accountId, ruleId, paidBefore }
     deleted: {},      // id → time it was deleted (so a deletion also reaches the other device)
     challenges: [],   // no-spend challenges: { id, name, categoryId, startDate }
+    shopping: [],     // the shopping list: { id, name, price, createdAt, updatedAt }
+    documents: [],    // documents & renewals: { id, name, kind, expires, number, photo, createdAt, updatedAt }
     savedAt: 0,
     sms: defaultSms(),
     settings: {
@@ -110,6 +113,8 @@ export function createDefaultState() {
       seenVersion: '',    // the What's new screen was shown for this version
       quickStart: { hidden: false },                         // the Getting started checklist
       glassLevel: 100,    // the kit's glass: 0 solid, 30 frosted, 100 clear (default)
+      payday: 0,          // salary day (1–31): "safe to spend" counts to it; 0 = the calendar month
+      upiContacts: {},    // name (lower case) → UPI ID, for Pay with UPI (kept on this device)
     },
   };
 }
@@ -127,6 +132,8 @@ export function normalizeState(raw) {
     budgets: { ...base.budgets, ...(raw.budgets || {}) },
     goals: Array.isArray(raw.goals) ? raw.goals.filter(g => g && g.id && Number.isFinite(g.target)) : [],
     challenges: Array.isArray(raw.challenges) ? raw.challenges.filter(c => c && c.id && c.startDate) : [],
+    shopping: Array.isArray(raw.shopping) ? raw.shopping.filter(x => x && x.id && x.name) : [],
+    documents: Array.isArray(raw.documents) ? raw.documents.filter(d => d && d.id && /^\d{4}-\d{2}-\d{2}$/.test(d.expires || '')) : [],
     emis: Array.isArray(raw.emis) ? raw.emis.filter(e => e && e.id && Number.isFinite(e.amount)) : [],
     deleted: raw.deleted && typeof raw.deleted === 'object' ? raw.deleted : {},
     savedAt: Number(raw.savedAt) || 0,
@@ -138,7 +145,7 @@ export function normalizeState(raw) {
   sms.pending = Array.isArray(sms.pending)
     ? sms.pending.filter(p => p && p.id && Number.isFinite(p.amount) && p.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(p.date || '')).slice(0, MAX_PENDING)
     : [];
-  for (const key of ['payees', 'accounts', 'balances']) if (!sms[key] || typeof sms[key] !== 'object') sms[key] = {};
+  for (const key of ['payees', 'accounts', 'balances', 'points']) if (!sms[key] || typeof sms[key] !== 'object') sms[key] = {};
   sms.lastDate = Number(sms.lastDate) || 0;
   delete sms.merchants;
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
@@ -146,6 +153,8 @@ export function normalizeState(raw) {
   if (typeof state.settings.activeTag !== 'string') state.settings.activeTag = '';
   if (!Array.isArray(state.settings.quickAdds)) state.settings.quickAdds = [];
   if (!Number.isFinite(state.settings.glassLevel)) state.settings.glassLevel = 100;
+  state.settings.payday = Math.max(0, Math.min(31, Math.round(Number(state.settings.payday) || 0)));
+  if (!state.settings.upiContacts || typeof state.settings.upiContacts !== 'object') state.settings.upiContacts = {};
   for (const key of ['backup', 'sync', 'evening', 'quickStart']) state.settings[key] = { ...base.settings[key], ...(state.settings[key] && typeof state.settings[key] === 'object' ? state.settings[key] : {}) };
   state.settings.email = { ...base.settings.email, ...(state.settings.email && typeof state.settings.email === 'object' ? state.settings.email : {}) };
   state.budgets.categories = state.budgets.categories || {};
@@ -174,6 +183,13 @@ export function normalizeState(raw) {
       ...(t.gstin ? { gstin: String(t.gstin) } : {}),
       ...(t.tax ? { tax: String(t.tax) } : {}),
       ...(t.by ? { by: String(t.by) } : {}),
+      ...(t.fee ? { fee: true } : {}),
+      ...(t.cashback ? { cashback: true } : {}),
+      ...(t.refund && typeof t.refund === 'object' ? { refund: {
+        since: String(t.refund.since || t.date),
+        ...(Number.isFinite(t.refund.amount) && t.refund.amount > 0 ? { amount: Math.round(t.refund.amount) } : {}),
+        ...(t.refund.done ? { done: String(t.refund.done) } : {}),
+      } } : {}),
       ...(t.sms && typeof t.sms === 'object' && t.sms.id ? { sms: {
         id: String(t.sms.id),
         ...(t.sms.ref ? { ref: String(t.sms.ref) } : {}),
@@ -585,8 +601,15 @@ export const store = {
   // ---- Balances and bills read from bank messages
 
   /** Keeps the newest balance per bank + account, and the bills (one per bill and due date). */
-  takeMessageExtras({ balances = [], bills = [], paid = [] }) {
+  takeMessageExtras({ balances = [], bills = [], paid = [], points = [] }) {
     let changed = false;
+    const cards = this.state.sms.points;
+    for (const p of points) {
+      const was = cards[p.key];
+      if (was && was.time > p.time) continue;
+      cards[p.key] = { bank: p.bank, last4: p.last4, points: p.points !== null ? p.points : (was ? was.points : null), earned: p.earned, time: p.time };
+      changed = true;
+    }
     const known = this.state.sms.balances;
     for (const b of balances) {
       if (!known[b.key] || known[b.key].time <= b.time) {
@@ -727,6 +750,69 @@ export const store = {
 
   endChallenge(id) {
     this.state.challenges = this.state.challenges.filter(c => c.id !== id);
+    this.state.deleted[id] = Date.now();
+    this.commit();
+  },
+
+  // ---- Refunds
+
+  /** Waiting for money back on an expense (a return, a cancelled order); amount defaults to all of it. */
+  setRefund(id, amount = 0) {
+    const t = this.state.transactions.find(x => x.id === id);
+    if (!t) return;
+    t.refund = { since: L.todayISO(), ...(amount > 0 && amount !== t.amount ? { amount } : {}) };
+    t.updatedAt = Date.now();
+    this.commit();
+  },
+
+  refundArrived(id) {
+    const t = this.state.transactions.find(x => x.id === id);
+    if (!t || !t.refund) return;
+    t.refund = { ...t.refund, done: L.todayISO() };
+    t.updatedAt = Date.now();
+    this.commit();
+  },
+
+  clearRefund(id) {
+    const t = this.state.transactions.find(x => x.id === id);
+    if (!t || !t.refund) return;
+    delete t.refund;
+    t.updatedAt = Date.now();
+    this.commit();
+  },
+
+  // ---- Shopping list
+
+  addShopping(name, price = 0) {
+    this.state.shopping.push({ id: L.uid(), name, price: price > 0 ? price : 0, createdAt: Date.now(), updatedAt: Date.now() });
+    this.commit();
+  },
+
+  updateShopping(id, patch) {
+    const item = this.state.shopping.find(x => x.id === id);
+    if (!item) return;
+    Object.assign(item, patch, { updatedAt: Date.now() });
+    this.commit();
+  },
+
+  removeShopping(id) {
+    this.state.shopping = this.state.shopping.filter(x => x.id !== id);
+    this.state.deleted[id] = Date.now();
+    this.commit();
+  },
+
+  // ---- Documents & renewals
+
+  saveDocument(doc) {
+    const existing = this.state.documents.find(d => d.id === doc.id);
+    if (existing) Object.assign(existing, doc, { updatedAt: Date.now() });
+    else this.state.documents.push({ id: L.uid(), createdAt: Date.now(), ...doc, updatedAt: Date.now() });
+    this.commit();
+    return existing || this.state.documents[this.state.documents.length - 1];
+  },
+
+  deleteDocument(id) {
+    this.state.documents = this.state.documents.filter(d => d.id !== id);
     this.state.deleted[id] = Date.now();
     this.commit();
   },

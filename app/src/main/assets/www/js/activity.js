@@ -6,6 +6,7 @@ import { $, esc, icon, tile, bindSwipeRows, openFormSheet, actionSheet, toast, h
 import { txRow, describe } from './rows.js';
 import { native } from './native.js';
 import { showPhoto } from './editor.js';
+import { expectRefund } from './more.js';
 
 /** The tiles: each is a count that filters the list below. */
 const TYPE_TILES = [
@@ -145,12 +146,17 @@ export function createActivity(root, { openEditor, filterButton }) {
     if (t.warranty) facts.push(['Warranty until', L.shortDate(t.warranty)]);
     if (t.recurringId) facts.push(['Repeats', 'Yes']);
     if (t.sms) facts.push(['Added from', 'your bank’s message']);
+    if (t.fee) facts.push(['Bank charge', 'Yes']);
+    const refund = L.refundStatus(t, store.state.transactions);
+    if (refund) facts.push(['Refund', refund.done ? `Back on ${L.shortDate(refund.done)}` : `Waiting ${refund.waiting} day${refund.waiting === 1 ? '' : 's'}`]);
     return `<div class="tx-open" data-key="open-${esc(t.id)}" data-open-for="${esc(t.id)}">
       <dl class="tx-facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
       <div class="tx-open-acts">
         <button class="ju-btn primary sm" data-tx-edit>${icon('pencil-simple')} Edit</button>
         ${t.type === 'expense' || t.type === 'income' ? `<button class="ju-btn sm" data-tx-again>${icon('copy')} Add Again Today</button>` : ''}
         ${t.photo ? `<button class="ju-btn sm" data-tx-photo>${icon('image')} Photo</button>` : ''}
+        ${t.type === 'expense' && !t.refund ? `<button class="ju-btn sm" data-tx-refund>${icon('arrow-u-up-left')} Expect a Refund</button>` : ''}
+        ${t.refund && !(refund && refund.done) ? `<button class="ju-btn sm" data-tx-refunded>${icon('check-circle')} Refund Came</button>` : ''}
         <button class="ju-btn ghost sm tx-delete" data-tx-delete>${icon('trash')} Delete</button>
       </div>
     </div>`;
@@ -269,6 +275,11 @@ export function createActivity(root, { openEditor, filterButton }) {
         const copy = store.addTransaction({ type, amount, categoryId, accountId, note, ...(tag ? { tag } : {}), ...(business ? { business } : {}), date: L.todayISO() });
         haptic('success');
         toast(`Added again for today · ${store.money(amount)}`, { iconName: 'copy', actionText: 'Undo', duration: 5000, onAction: () => store.deleteTransaction(copy.id) });
+      } else if (e.target.closest('[data-tx-refund]')) {
+        expectRefund(tx);
+      } else if (e.target.closest('[data-tx-refunded]')) {
+        store.refundArrived(tx.id);
+        haptic('success');
       } else if (e.target.closest('[data-tx-photo]')) {
         native.photoUrl(tx.id).then(url => { if (url) showPhoto(url); });
       } else if (e.target.closest('[data-tx-delete]')) {

@@ -1,7 +1,7 @@
 // Offline support for the website version. The Android app loads files from the APK and never
 // registers this. Network first, so a reload always picks up a new version; the cache is the
 // fallback when there is no connection.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = `expenses-${VERSION}`;
 
 // Everything the app needs to start with no connection (checked by tests/web.test.js)
@@ -32,6 +32,7 @@ const PRECACHE = [
   'js/manage.js',
   'js/nav.js',
   'js/messages.js',
+  'js/more.js',
   'js/native.js',
   'js/onboarding.js',
   'js/plans.js',

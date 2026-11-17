@@ -20,10 +20,13 @@ import {
 /** "Heads up": a category well above last month, heading over budget, an unusually big spend. */
 function alertsHTML() {
   const st = store.state;
-  const alerts = L.computeAlerts(
-    { transactions: st.transactions, budgets: st.budgets, categoryName: id => store.category(id).name },
-    v => store.money(v),
-  ).filter(a => !st.settings.dismissed[a.key]);
+  const alerts = [
+    ...L.watchAlerts(st, v => store.money(v)),
+    ...L.computeAlerts(
+      { transactions: st.transactions, budgets: st.budgets, categoryName: id => store.category(id).name },
+      v => store.money(v),
+    ),
+  ].filter(a => !st.settings.dismissed[a.key]);
   if (!alerts.length) return '';
   return `
     <div class="ju-card home-card">
@@ -80,7 +83,7 @@ export function createHome(root, { openEditor, goTo, openBudgets, quickStartStep
         <div class="big ${amountText.length > 11 ? 'long' : ''}">${esc(amountText)}</div>
         <div class="line">${line}</div>
         ${budget ? `<div class="ju-bar" role="img" aria-label="${Math.round(pct * 100)}% of your budget used"><i style="width:${Math.min(100, pct * 100)}%;background:${pct >= 1 ? 'var(--bad)' : pct >= 0.8 ? 'var(--warn)' : 'var(--ok)'}"></i></div>` : ''}
-        ${safe ? `<button class="safe ${safe.perDay ? '' : 'none'}" data-safe>${icon('hand-coins')}<span>Safe to spend today</span><strong>${esc(store.money(safe.perDay))}</strong></button>` : ''}
+        ${safe ? `<button class="safe ${safe.perDay ? '' : 'none'}" data-safe>${icon('hand-coins')}<span>Safe to spend today${safe.daysToSalary !== null ? ` · ${safe.daysToSalary} day${safe.daysToSalary === 1 ? '' : 's'} to salary` : ''}</span><strong>${esc(store.money(safe.perDay))}</strong></button>` : ''}
         <div class="acts">
           <button class="ju-btn accent" data-act="add">${icon('plus')} Add</button>
           ${canScan() ? `<button class="ju-btn soft" data-act="scan">${icon('scan')} Scan Bill</button>` : ''}

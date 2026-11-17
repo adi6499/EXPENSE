@@ -1,6 +1,7 @@
 // Savings goals, EMIs and warranties.
 import { store } from './store.js';
 import * as L from './logic.js';
+import { documentReminders } from './more.js';
 import { esc, icon, tile, pushPage, actionSheet, alert, toast, haptic, promptText, pickAmount, pickDate } from './ui.js';
 import { ring } from './charts.js';
 import { openEditor, showPhoto } from './editor.js';
@@ -234,5 +235,6 @@ export function planReminders(now = Date.now()) {
       list.push({ id: `eve|${L.addDays(today, i)}`, title: note.title, text: note.text, at, open: 'home' });
     }
   }
+  list.push(...documentReminders(now));
   return list;
 }

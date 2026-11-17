@@ -65,7 +65,7 @@ export function checkMessages({ quiet = true } = {}) {
  */
 export function takeBankMessages(messages, { newestSms = 0, quiet = true } = {}) {
   const findings = [];
-  const extras = { balances: [], bills: [], paid: [] };
+  const extras = { balances: [], bills: [], paid: [], points: [] };
   for (const m of messages) {
     try {
       const options = m.bank || m.via ? { bank: m.bank || '', via: m.via } : {};
@@ -77,6 +77,8 @@ export function takeBankMessages(messages, { newestSms = 0, quiet = true } = {})
       if (bill) extras.bills.push(bill);
       const paid = S.parseBillPaid(m, options);
       if (paid) extras.paid.push(paid);
+      const points = S.parsePoints(m, options);
+      if (points) extras.points.push(points);
     } catch (err) {
       console.warn('Skipped a message that could not be read', err);
     }

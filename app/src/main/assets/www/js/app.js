@@ -436,7 +436,10 @@ function boot() {
   syncPhone();
   syncPhoneExtras();
   // Photos whose transaction is gone (deleted, or replaced by a restore)
-  native.cleanPhotos(store.state.transactions.filter(t => t.photo).map(t => t.id));
+  native.cleanPhotos([
+    ...store.state.transactions.filter(t => t.photo).map(t => t.id),
+    ...store.state.documents.filter(d => d.photo).map(d => `doc-${d.id}`),
+  ]);
   readMessages(launchAction === 'sms');
   if (sharedText) whenUnlocked(() => setTimeout(() => addFromSharedText(sharedText), 300));
   takeLinkedMessage();

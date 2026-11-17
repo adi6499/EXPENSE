@@ -1369,3 +1369,41 @@ html.ju .icon-grid button.on {
 .money-hero .acts .ju-btn {
   padding: 0 14px;
 }
+
+/* ---------- 18. 1.6: shopping list, savings tips */
+.shop-row {
+  padding-left: 6px;
+}
+
+.shop-tick {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  color: var(--muted);
+  font-size: 24px;
+  transition: transform 0.16s var(--ease);
+}
+
+.shop-tick:active {
+  transform: scale(0.88);
+}
+
+.shop-row .row-main {
+  text-align: left;
+}
+
+.tip-row .row-text {
+  padding: 10px 0;
+}
+
+.tip-row .row-title {
+  white-space: normal;
+}
+
+.tip-text {
+  white-space: normal !important;
+  overflow: visible !important;
+  line-height: 1.4;
+}

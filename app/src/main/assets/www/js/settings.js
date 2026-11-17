@@ -2,7 +2,7 @@
 import { store, parseBackup } from './store.js';
 import { native } from './native.js';
 import * as L from './logic.js';
-import { $, $$, esc, icon, tile, alert, actionSheet, openFormSheet, segmented, bindSegmented, haptic, toast } from './ui.js';
+import { $, $$, esc, icon, tile, alert, actionSheet, openFormSheet, segmented, bindSegmented, haptic, toast, promptText } from './ui.js';
 import { openCategories, openAccounts, openBudgets, openRepeating, openCurrency, openAppearance } from './manage.js';
 import {
   canReadMessages, turnOn as turnOnMessages, turnOff as turnOffMessages, setNotify, checkMessages, openReview,
@@ -36,6 +36,8 @@ function switchRow({ id, iconName, color, title, checked, disabled = false }) {
     <span class="switch"><input type="checkbox" data-switch="${id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span></span></span></div></label>`;
 }
 
+const ordinal = d => `${d}${d % 10 === 1 && d !== 11 ? 'st' : d % 10 === 2 && d !== 12 ? 'nd' : d % 10 === 3 && d !== 13 ? 'rd' : 'th'}`;
+
 export function createSettings(root, { applyTheme, webInstall }) {
   function render() {
     const st = store.state;
@@ -59,6 +61,7 @@ ${showInstall ? `
         <div class="list">
           ${row({ id: 'quick', iconName: 'lightning', color: 'orange', title: 'Quick Buttons', value: s.quickAdds.length ? String(s.quickAdds.length) : 'Add' })}
           ${row({ id: 'family', iconName: 'users', color: 'blue', title: 'Family Sharing', value: familyOn() ? s.memberName : 'Off' })}
+          ${row({ id: 'payday', iconName: 'calendar-check', color: 'green', title: 'Salary Day', value: s.payday ? (s.payday >= 31 ? 'Last day' : ordinal(s.payday)) : 'Off' })}
           ${app ? switchRow({ id: 'evening', iconName: 'moon', color: 'indigo', title: 'Evening Note', checked: s.evening.enabled }) : ''}
           ${switchRow({ id: 'hide', iconName: 'eye-slash', color: 'gray', title: 'Hide Amounts', checked: s.hideAmounts })}
         </div>
@@ -226,6 +229,27 @@ ${messagesSection(st.sms)}
       'sms-iphone': openIphoneSetup,
       quick: openQuickAdds,
       'sms-on': async () => { await turnOnMessages(); render(); },
+      payday: async () => {
+        const current = store.state.settings.payday;
+        const choice = await actionSheet({
+          title: 'Salary Day',
+          message: '“Safe to spend” then counts down to your salary instead of the end of the month.',
+          actions: [
+            ...[1, 5, 7, 10, 15, 25].map(d => ({ text: ordinal(d), value: String(d), checked: current === d })),
+            { text: 'Last day of the month', value: '31', checked: current >= 31 },
+            { text: 'Another Day…', value: 'other', icon: 'pencil-simple' },
+            { text: 'Off (calendar month)', value: '0', checked: !current },
+          ],
+        });
+        if (!choice) return;
+        let value = Number(choice);
+        if (choice === 'other') {
+          const typed = await promptText({ title: 'Salary comes on day…', placeholder: '1 to 31', maxLength: 2 });
+          value = Math.round(Number(typed));
+          if (!value || value < 1 || value > 31) return;
+        }
+        store.setSetting('payday', value);
+      },
       family: openFamily,
       language: async () => {
         const choice = await actionSheet({ title: 'Language', actions: LANGUAGES.map(x => ({ text: x.label, value: x.value, checked: x.value === store.state.settings.language })) });

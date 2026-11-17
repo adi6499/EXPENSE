@@ -2,7 +2,7 @@
 // out the amount, whether money went out or came in, the bank, the account's last digits and who
 // it was paid to. Also guesses a category and account for it.
 // Pure functions only: no DOM, no storage. Unit-tested in tests/sms.test.js.
-import { toISO, addDays, daysBetween, parseFlexibleDate } from './logic.js';
+import { toISO, addDays, daysBetween, parseFlexibleDate, isFeeText } from './logic.js';
 
 // ---------- Senders
 
@@ -299,7 +299,35 @@ export function parseBankSms(message, options = {}) {
   if (options.via) finding.via = options.via;
   finding.transfer = transferKind(finding);
   if (finding.transfer === 'card' && !finding.merchant) finding.merchant = 'Card bill payment';
+  // A bank charge (annual fee, SMS charges, late fee…) or cashback coming in
+  if (type === 'expense' && !finding.transfer && isFeeText(text)) {
+    finding.fee = true;
+    if (!finding.merchant) finding.merchant = 'Bank charges';
+  }
+  if (type === 'income' && /\bcash ?back\b/i.test(text)) {
+    finding.cashback = true;
+    if (!finding.merchant) finding.merchant = 'Cashback';
+  }
   return finding;
+}
+
+/** Reward points in a bank or card message: { key, bank, last4, points, earned, time } or null. */
+export function parsePoints(message, options = {}) {
+  const { address = '', body = '', date = Date.now() } = message || {};
+  if (!body || isPersonalNumber(address)) return null;
+  const text = cleanText(body);
+  if (/\botp\b/i.test(text)) return null;
+  const num = v => Number(String(v).replace(/,/g, ''));
+  const total = text.match(/(?:total|available|accumulated|closing|current)\s+(?:reward\s+)?points?(?:\s+balance)?\s*(?:is|are|of|:|-)?\s*([\d,]+)/i)
+    || text.match(/(?:reward\s+)?points?\s+balance\s*(?:is|of|:|-)?\s*([\d,]+)/i);
+  const earned = text.match(/(?:earned|credited with|added|got|won)\s+([\d,]+)\s+(?:reward\s+|bonus\s+)?points?/i)
+    || text.match(/([\d,]+)\s+(?:reward\s+|bonus\s+)?points?\s+(?:have been |has been )?(?:earned|credited|added)/i);
+  if (!total && !earned) return null;
+  const bank = options.bank || bankName(address);
+  if (!bank) return null;
+  const digits = text.match(ACCOUNT_DIGITS);
+  const last4 = digits ? digits[1] : '';
+  return { key: `${bank}|${last4}`, bank, last4, points: total ? num(total[1]) : null, earned: earned ? num(earned[1]) : 0, time: Number(date) || Date.now() };
 }
 
 // ---------- Category and account guesses
@@ -498,6 +526,8 @@ export function toTransaction(finding, state) {
     note: (p && p.note) || finding.merchant || '',
     sms,
     ...(tag && finding.type === 'expense' ? { tag } : {}),
+    ...(finding.fee ? { fee: true } : {}),
+    ...(finding.cashback ? { cashback: true } : {}),
   };
 }
 

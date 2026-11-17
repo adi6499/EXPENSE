@@ -50,6 +50,12 @@ install it and start adding expenses. Everything is saved on the phone.
   PPF messages count as saving, not spending), GST read from scanned bills (claim report column), tax-saving totals for
   the financial year (80C, 80D, NPS, HRA…), an evening note at 9 PM and renewal nudges for subscriptions, Hide Amounts,
   no-spend challenges, Hindi and Gujarati (Settings → Language), a Getting started list and What's new.
+- **1.6.0, money you'd otherwise lose** (`js/more.js`): bank charges added up for the year (fees, SMS charges, late
+  fees, interest — read from bank messages), a "charged twice?" warning, refunds you're waiting for (found by
+  themselves when the money comes back), cashback and card reward points, a salary day for "safe to spend", Pay with
+  UPI (Android: hands the payment to your UPI app, then asks whether it went through), a shopping list that turns into
+  expenses, documents & renewals with photos and reminders, savings tips from your own spending, and your year on
+  one page (share picture + printable statement). All under Insights → Tools.
 - **Split a bill**: Split in the editor shares an expense equally; your share is spending, the rest goes to Lent &
   Borrowed, and each person gets a WhatsApp picture with a UPI "scan to pay" code for their exact share
   (js/qr.js is the QR encoder; Settings → Payments → Your UPI ID).

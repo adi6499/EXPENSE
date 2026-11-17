@@ -5,7 +5,7 @@ import { native } from './native.js';
 import * as L from './logic.js';
 import { esc, icon, tile, pushPage, actionSheet, toast, haptic, promptText, pickAmount, openSheet } from './ui.js';
 
-export const APP_VERSION = '1.5.0'; // the What's new list's version (a small fix release keeps it, so the list isn't shown again)
+export const APP_VERSION = '1.6.0'; // the What's new list's version (a small fix release keeps it, so the list isn't shown again)
 const settings = () => store.state.settings;
 
 function livePage(options) {
@@ -243,15 +243,16 @@ export function hideChecklist() {
 // ---------- What's new (once, after an update)
 
 const NEW_THINGS = [
-  ['palette', 'A cleaner look', 'Calm colours, clear glass bars and bigger buttons. Change the glass in Settings → Appearance.'],
-  ['lightning', 'Quick buttons', 'Chai, auto, milk — one tap adds it. Also on the home-screen widget.'],
-  ['users', 'Family sharing', 'Everyone adds from their own phone and sees one budget.'],
-  ['scales', 'Net worth & investments', 'SIPs, FDs and PPF from bank messages count as saving, not spending.'],
-  ['receipt', 'Tax saving & GST', 'LIC, PPF, health insurance and rent added up for your ITR. GST read from scanned bills.'],
-  ['moon', 'Evening note', 'What you spent today, at 9 at night.'],
-  ['eye-slash', 'Hide amounts', 'Tap the eye on Summary when someone is looking.'],
-  ['flame', 'No-spend challenges', 'Count the days you skip eating out or shopping.'],
-  ['translate', 'हिंदी and ગુજરાતી', 'Settings → Language.'],
+  ['bank', 'Bank charges', 'Every fee your bank and cards take, added up for the year.'],
+  ['copy', 'Charged twice?', 'A warning when the same payment goes through twice.'],
+  ['arrow-u-up-left', 'Refunds', 'Mark a purchase “Expect a Refund” — you’ll know when the money is back.'],
+  ['gift', 'Cashback & points', 'Cashback credits and card reward points in one place.'],
+  ['calendar-check', 'Salary day', '“Safe to spend” counts down to your salary. Settings → Everyday.'],
+  ['qr-code', 'Pay with UPI', 'Pay someone back from Lent & Borrowed, or from the add screen’s More.'],
+  ['shopping-cart-simple', 'Shopping list', 'Plan with prices; tick it off and it becomes an expense.'],
+  ['files', 'Documents & renewals', 'Insurance, PUC, licence, passport — with a reminder before each runs out.'],
+  ['lightbulb', 'Ways to save', 'Plain tips from your own spending, on Insights.'],
+  ['calendar-blank', 'Your year', 'Your year on one page, to share — and a printable statement.'],
 ];
 
 export function maybeShowWhatsNew() {

@@ -15,6 +15,7 @@ import { openClaims } from './claims.js';
 import { openNetWorth, openTax } from './worth.js';
 import { openChallenges } from './easy.js';
 import { openFamily, familyOn } from './family.js';
+import { openFees, openRefunds, openCashback, openShopping, openDocuments, openYear, tipsHTML } from './more.js';
 
 const FREQUENCY_SHORT = { weekly: 'Every week', monthly: 'Every month', yearly: 'Every year' };
 
@@ -154,6 +155,12 @@ export function createInsights(root, { openEditor, showActivity }) {
       ['claims', 'briefcase', 'brown', 'Business Expenses', n(unclaimed, 'to claim', 'to claim', 'All claimed')],
       ['warranties', 'shield-check', 'green', 'Warranties', n(warranties, 'active', 'active', 'None')],
       ['family', 'users', 'blue', 'Family', familyOn() ? `Sharing as ${st.settings.memberName}` : 'Off'],
+      ['shopping', 'shopping-cart-simple', 'green', 'Shopping List', n(st.shopping.length, 'to buy', 'to buy', 'Nothing to buy')],
+      ['documents', 'files', 'indigo', 'Documents & Renewals', (() => { const d = st.documents.filter(x => L.docStatus(x).expired || L.docStatus(x).soon).length; return d ? `${d} to renew soon` : n(st.documents.length, 'kept', 'kept', 'Add insurance, PUC…'); })()],
+      ['refunds', 'arrow-u-up-left', 'orange', 'Refunds', (() => { const w = L.refunds(st.transactions).filter(x => !x.status.done).length; return w ? `${w} waiting` : 'None waiting'; })()],
+      ['cashback', 'gift', 'pink', 'Cashback & Points', (() => { const c = L.cashbackSummary(st.transactions, st.sms.points); return c.total ? `${store.money(c.total)} this year` : 'None yet'; })()],
+      ['fees', 'bank', 'gray', 'Bank Charges', (() => { const f = L.feesSummary(st.transactions); return f.total ? `${store.money(f.total)} this year` : 'None this year'; })()],
+      ['year', 'calendar-check', 'red', 'Your Year', `${L.todayISO().slice(0, 4)} so far`],
     ];
     return `
       ${subs.length ? `<div class="ju-card home-card"><div class="head"><h2>Regular payments</h2></div>
@@ -166,6 +173,7 @@ export function createInsights(root, { openEditor, showActivity }) {
         }).join('')}</div>
         <div class="ju-muted ju-small" style="margin-top:8px">Found in your spending: the same payee, a steady amount, at a regular gap. About ${esc(store.money(perMonth))} a month in all.</div>
       </div>` : ''}
+      ${tipsHTML()}
       <div class="ju-group ins-tools-head"><span>Tools</span></div>
       <div class="ju-tiles tool-tiles">
         ${tools.map(([key, ic, color, label, small]) => `<button class="ju-tile tool-tile" data-open="${key}">${tile(ic, color, 'lg')}<span>${esc(label)}</span><small>${esc(small)}</small></button>`).join('')}
@@ -183,7 +191,7 @@ export function createInsights(root, { openEditor, showActivity }) {
   root.addEventListener('click', e => {
     const open = e.target.closest('[data-open]');
     if (open) {
-      ({ trips: openTrips, people: openPeople, bills: openBills, calendar: openCalendar, goals: openGoals, emis: openEmis, warranties: openWarranties, claims: openClaims, worth: openNetWorth, tax: openTax, challenges: openChallenges, family: openFamily })[open.dataset.open]();
+      ({ trips: openTrips, people: openPeople, bills: openBills, calendar: openCalendar, goals: openGoals, emis: openEmis, warranties: openWarranties, claims: openClaims, worth: openNetWorth, tax: openTax, challenges: openChallenges, family: openFamily, shopping: openShopping, documents: openDocuments, refunds: openRefunds, cashback: openCashback, fees: openFees, year: openYear })[open.dataset.open]();
       return;
     }
     if (e.target.closest('[data-ins-add]')) { openEditor(); return; }

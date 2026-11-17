@@ -11,6 +11,7 @@ import {
 } from './ui.js';
 import { openCategoryEditor, openAccountEditor } from './manage.js';
 import { openSplit } from './split.js';
+import { payWithUpi, canPayUpi } from './more.js';
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
@@ -182,6 +183,7 @@ export function openEditor(existing = null, preset = {}) {
         { text: s.tag ? `Trip or Event: ${s.tag}` : 'Trip or Event', value: 'tag', icon: 'tag', checked: !!s.tag },
         ...(expense ? [{ text: 'Business Expense (GST)', value: 'business', icon: 'briefcase', checked: s.business }] : []),
         ...(expense ? [{ text: 'Warranty', value: 'warranty', icon: 'shield-check', checked: !!s.warranty }] : []),
+        ...(expense && !editing && canPayUpi() ? [{ text: 'Pay with UPI', value: 'upi', icon: 'qr-code' }] : []),
         { text: 'Repeat', value: 'repeat', icon: 'repeat', checked: s.repeat !== 'never' },
         ...(expense || s.type === 'transfer' ? [{ text: s.tax || guess ? `Tax Saving: ${taxLabel(s.tax || guess)}` : 'Tax Saving', value: 'tax', icon: 'receipt', checked: !!(s.tax && s.tax !== 'none') || (!s.tax && !!guess) }] : []),
       ],
@@ -511,6 +513,13 @@ export function openEditor(existing = null, preset = {}) {
   async function detail(kind) {
     if (kind === 'more') {
       more();
+    } else if (kind === 'upi') {
+      const amount = L.typedToMinor(s.typed);
+      if (!amount) { shake(amountEl); toast('Type the amount first', { iconName: 'qr-code' }); return; }
+      if (await payWithUpi({ name: s.note.trim(), amount, note: s.note.trim() })) {
+        if (!s.accountId || !store.account(s.accountId)) s.accountId = store.account('upi') ? 'upi' : s.accountId;
+        save();
+      }
     } else if (kind === 'gst') {
       const value = await pickAmount({ title: 'GST on This Bill', subtitle: 'CGST + SGST, or IGST — shown in your business report', initial: s.gst, currency: store.currency });
       if (value !== null) { s.gst = value; paintDetails(); }

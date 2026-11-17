@@ -849,11 +849,13 @@ export function parseSpoken(text, today = todayISO()) {
  * bills still due and repeating payments still to come this month, spread over the days left.
  * Returns null without a monthly budget. Card bills are left out (their spending is already counted).
  */
-export function safeToSpend({ transactions, budgets = {}, bills = [], recurring = [] }, today = todayISO()) {
+export function safeToSpend({ transactions, budgets = {}, bills = [], recurring = [], settings = {} }, today = todayISO()) {
   const budget = budgets.monthly || 0;
   if (!budget) return null;
-  const monthEnd = endOfMonth(today);
-  const spent = totals(inRange(transactions, startOfMonth(today), monthEnd)).expense;
+  // Payday mode: count from salary day to the next one instead of the calendar month
+  const payday = settings && Number(settings.payday) > 0 ? payPeriod(Number(settings.payday), today) : null;
+  const monthEnd = payday ? payday.end : endOfMonth(today);
+  const spent = totals(inRange(transactions, payday ? payday.start : startOfMonth(today), monthEnd)).expense;
   const billsLeft = bills
     .filter(b => !b.paid && b.dueDate >= today && b.dueDate <= monthEnd && !/card/i.test(b.name || ''))
     .reduce((sum, b) => sum + b.amount, 0);
@@ -869,7 +871,7 @@ export function safeToSpend({ transactions, budgets = {}, bills = [], recurring 
   const left = budget - spent - billsLeft - repeatsLeft;
   const daysLeft = daysBetween(today, monthEnd) + 1;
   const perDay = left > 0 ? Math.floor(left / daysLeft / 1000) * 1000 : 0; // whole ₹10s
-  return { perDay, left, daysLeft, spent, billsLeft, repeatsLeft, budget };
+  return { perDay, left, daysLeft, spent, billsLeft, repeatsLeft, budget, daysToSalary: payday ? payday.daysToSalary : null };
 }
 
 // ---------- Asking a question in search ("swiggy this month", "how much on petrol last 3 months")
@@ -1048,7 +1050,7 @@ export function monthCalendar(monthStart, transactions) {
 // ---------- Two devices: merging (phone ↔ computer sync)
 
 // Settings that belong to one device and never travel
-const DEVICE_SETTINGS = ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart', 'glassLevel'];
+const DEVICE_SETTINGS = ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart', 'glassLevel', 'upiContacts'];
 const DEVICE_SMS = ['enabled', 'autoAdd', 'notify', 'lastDate'];
 
 const stamp = r => (r && (r.updatedAt || r.createdAt)) || 0;
@@ -1077,7 +1079,7 @@ export function mergeStates(local, remote) {
   for (const [id, at] of Object.entries(newer.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, at);
   const merged = JSON.parse(JSON.stringify(newer));
   merged.deleted = deleted;
-  for (const key of ['transactions', 'bills', 'goals', 'emis', 'recurring', 'categories', 'accounts', 'challenges']) {
+  for (const key of ['transactions', 'bills', 'goals', 'emis', 'recurring', 'categories', 'accounts', 'challenges', 'shopping', 'documents']) {
     merged[key] = mergeById(newer[key], older[key], deleted);
   }
   const pendingSeen = new Set(merged.transactions.filter(t => t.sms).map(t => t.sms.id));
@@ -1245,4 +1247,212 @@ export function readInvite(text) {
   } catch {
     return null;
   }
+}
+
+// ---------- 1.6: money you lose (fees, double charges), refunds, cashback, payday, tips, documents, the year
+
+/** Bank charges and fees in a message or a note: annual fee, SMS charges, minimum-balance charges, late fee, interest… */
+const FEE = /\b(?:annual fee|joining fee|renewal fee|late (?:payment )?fee|late payment charges?|penal(?:ty)?(?: charges?| interest)?|finance charges?|interest (?:charged|debited)|sms (?:alert )?charges?|min(?:imum)?\.? ?bal(?:ance)?\.? (?:charges?|penalty)|non[- ]maintenance (?:of )?(?:min(?:imum)? )?(?:bal(?:ance)? )?charges?|amc|account maintenance (?:charges?|fee)|atm (?:withdrawal )?(?:charges?|fee)|cash (?:advance|withdrawal) fee|over ?limit (?:fee|charges?)|cheque (?:return|bounce) charges?|(?:ecs|nach|mandate|emi) (?:return|bounce) charges?|bounce charges?|gst on (?:charges|fees?)|debit card (?:annual )?(?:fee|charges?)|card (?:annual )?fee|service charges?|processing fee|convenience fee)\b/i;
+
+export const isFeeText = text => FEE.test(String(text || ''));
+
+/** Is this a bank charge? (Marked when read from a bank message, or by its note.) */
+export const isFee = t => t.type === 'expense' && (!!t.fee || isFeeText(t.note));
+
+/** Bank charges this calendar year: { total, list (newest first), start }. */
+export function feesSummary(transactions, today = todayISO()) {
+  const start = `${today.slice(0, 4)}-01-01`;
+  const list = sortTransactions(transactions.filter(t => isFee(t) && t.date >= start && t.date <= today));
+  return { total: list.reduce((sum, t) => sum + t.amount, 0), list, start };
+}
+
+/** The same amount to the same payee twice on one day, both from bank messages: maybe charged twice. */
+export function doubleCharges(transactions, today = todayISO(), days = 14) {
+  const since = addDays(today, -days);
+  const groups = new Map();
+  for (const t of transactions) {
+    if (t.type !== 'expense' || !t.sms || t.date < since || t.date > today || t.amount < 10000) continue;
+    const payee = t.sms.payee || personKey(t.note);
+    if (!payee) continue;
+    const key = `${t.date}|${t.amount}|${payee}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const found = [];
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const [a, b] = list.sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+    if (a.sms.ref && b.sms.ref && a.sms.ref === b.sms.ref) continue; // the same payment told twice
+    found.push({ key: `dbl|${a.id}|${b.id}`, a, b });
+  }
+  return found;
+}
+
+/** A refund being waited for: t.refund = { amount, since, done? }. Found by itself when the money comes back. */
+export function refundStatus(t, transactions, today = todayISO()) {
+  if (!t.refund) return null;
+  if (t.refund.done) return { done: t.refund.done };
+  const want = t.refund.amount || t.amount;
+  const payee = (t.sms && t.sms.payee) || personKey(t.note);
+  const back = transactions.find(x => x.type === 'income' && x.date >= t.date && Math.abs(x.amount - want) <= 100 &&
+    (/refund|reversal|reversed|returned|cancell?ed/i.test(x.note || '') ||
+      (payee && (((x.sms && x.sms.payee) === payee) || personKey(x.note).includes(payee)))));
+  if (back) return { done: back.date, by: back.id };
+  return { waiting: daysBetween(t.refund.since || t.date, today) };
+}
+
+/** Every refund asked for: still waiting first (longest first), then the ones that came back. */
+export function refunds(transactions, today = todayISO()) {
+  const list = transactions.filter(t => t.refund).map(t => ({ t, status: refundStatus(t, transactions, today) }));
+  return list.sort((a, b) => (a.status.done ? 1 : 0) - (b.status.done ? 1 : 0) || (b.status.waiting || 0) - (a.status.waiting || 0));
+}
+
+/** Cashback credited this year, and the latest reward points per card. */
+export function cashbackSummary(transactions, points = {}, today = todayISO()) {
+  const start = `${today.slice(0, 4)}-01-01`;
+  const list = sortTransactions(transactions.filter(t => t.type === 'income' && t.date >= start && t.date <= today &&
+    (t.cashback || /cash ?back|reward/i.test(t.note || ''))));
+  const cards = Object.values(points || {}).sort((a, b) => b.time - a.time);
+  return { total: list.reduce((sum, t) => sum + t.amount, 0), list, cards };
+}
+
+// ---------- Payday
+
+/** The pay period around today for a salary on `day` (1–31; past the month's end = its last day). */
+export function payPeriod(day, today = todayISO()) {
+  const on = iso => {
+    const y = Number(iso.slice(0, 4));
+    const m = Number(iso.slice(5, 7)) - 1;
+    return toISO(new Date(y, m, Math.min(day, daysInMonth(y, m))));
+  };
+  const thisMonth = on(today);
+  const som = startOfMonth(today);
+  const start = today >= thisMonth ? thisMonth : on(addMonths(som, -1));
+  const next = today >= thisMonth ? on(addMonths(som, 1)) : thisMonth;
+  return { start, end: addDays(next, -1), next, daysToSalary: daysBetween(today, next) };
+}
+
+// ---------- Savings tips (plain rules on your own spending; no guessing about your life)
+
+const DELIVERY = /\b(?:swiggy|zomato|eatsure|domino'?s|pizza ?hut|kfc|mc ?donald'?s|faasos|box8|burger king|behrouz|oven story)\b/i;
+
+export function savingsTips(state, { categoryName = id => id, money = v => String(v / 100) } = {}, today = todayISO()) {
+  const tips = [];
+  const from = addDays(today, -29);
+  const last30 = state.transactions.filter(t => t.type === 'expense' && t.date >= from && t.date <= today);
+  const label = t => `${t.note || ''} ${(t.sms && t.sms.payee) || ''}`;
+
+  const delivery = last30.filter(t => DELIVERY.test(label(t)));
+  const deliverySum = delivery.reduce((s, t) => s + t.amount, 0);
+  if (delivery.length >= 4 && deliverySum >= 150000) {
+    const save = Math.round((deliverySum * 0.3) / 10000) * 10000;
+    tips.push({ key: 'delivery', icon: 'moped', title: `Food delivery: ${money(deliverySum)} in 30 days`,
+      text: `${delivery.length} orders. Ordering one in three fewer times saves about ${money(save)} a month.`, save });
+  }
+
+  const subs = detectSubscriptions(state.transactions, today);
+  if (subs.length >= 2) {
+    const perMonth = subs.reduce((s, x) => s + x.perMonth, 0);
+    const smallest = subs[subs.length - 1];
+    tips.push({ key: 'subs', icon: 'arrows-clockwise', title: `${subs.length} regular payments: ${money(perMonth)} a month`,
+      text: `Cancel any you no longer use — ${smallest.name} alone is ${money(smallest.perMonth)} a month.`, save: smallest.perMonth });
+  }
+
+  const fees = feesSummary(state.transactions, today);
+  if (fees.total >= 10000) {
+    tips.push({ key: 'fees', icon: 'bank', title: `${money(fees.total)} in bank charges this year`,
+      text: 'Ask the bank to waive card annual fees, keep the minimum balance, and turn off paid SMS alerts — this app reads them anyway.',
+      save: Math.round(fees.total / Math.max(1, Number(today.slice(5, 7)))) });
+  }
+
+  // A category well above its usual (the 90 days before)
+  const before = inRange(state.transactions, addDays(from, -90), addDays(from, -1));
+  const usual = new Map(byCategory(before).map(r => [r.categoryId, r.total / 3]));
+  for (const r of byCategory(last30)) {
+    const was = usual.get(r.categoryId) || 0;
+    if (was >= 50000 && r.total > was * 1.4 && r.total - was >= 100000) {
+      tips.push({ key: `up|${r.categoryId}`, icon: 'trend-up', title: `${categoryName(r.categoryId)} is up: ${money(r.total)} in 30 days`,
+        text: `Usually about ${money(Math.round(was / 100) * 100)} a month. Bringing it back saves ${money(Math.round((r.total - was) / 100) * 100)}.`,
+        save: r.total - was });
+      break;
+    }
+  }
+
+  const small = last30.filter(t => t.amount < 20000);
+  const smallSum = small.reduce((s, t) => s + t.amount, 0);
+  if (small.length >= 20 && smallSum >= 200000) {
+    tips.push({ key: 'small', icon: 'coins', title: `${small.length} small spends added up to ${money(smallSum)}`,
+      text: 'Each under ₹200 — tea, snacks, quick buys. Skipping a few a week adds up fast.', save: Math.round(smallSum * 0.2) });
+  }
+  return tips.sort((a, b) => b.save - a.save).slice(0, 4);
+}
+
+// ---------- Documents & renewals
+
+export const DOC_KINDS = [
+  { key: 'car-insurance', label: 'Car insurance', icon: 'car' },
+  { key: 'bike-insurance', label: 'Bike insurance', icon: 'motorcycle' },
+  { key: 'puc', label: 'PUC certificate', icon: 'leaf' },
+  { key: 'licence', label: 'Driving licence', icon: 'identification-card' },
+  { key: 'passport', label: 'Passport', icon: 'airplane-tilt' },
+  { key: 'health', label: 'Health insurance', icon: 'heartbeat' },
+  { key: 'life', label: 'Life insurance', icon: 'umbrella' },
+  { key: 'rc', label: 'Vehicle RC / fitness', icon: 'file-text' },
+  { key: 'rent', label: 'Rent agreement', icon: 'house' },
+  { key: 'other', label: 'Other', icon: 'file' },
+];
+
+export const docKind = key => DOC_KINDS.find(k => k.key === key) || DOC_KINDS[DOC_KINDS.length - 1];
+
+/** Days until it runs out (negative = already ran out). */
+export function docStatus(doc, today = todayISO()) {
+  const days = daysBetween(today, doc.expires);
+  return { days, expired: days < 0, soon: days >= 0 && days <= 30 };
+}
+
+// ---------- Heads Up from the 1.6 helpers: double charges, refunds waiting long, documents running out
+
+export function watchAlerts(state, money, today = todayISO()) {
+  const alerts = [];
+  for (const d of doubleCharges(state.transactions, today)) {
+    alerts.push({ key: d.key, icon: 'copy', color: 'red',
+      text: `Charged twice? ${money(d.a.amount)} to ${d.a.note || 'the same payee'} two times on ${shortDate(d.a.date, today)}. If it's a mistake, call your bank.` });
+  }
+  for (const { t, status } of refunds(state.transactions, today)) {
+    if (!status.done && status.waiting >= 7) {
+      alerts.push({ key: `ref|${t.id}|${Math.floor(status.waiting / 7)}`, icon: 'arrow-u-up-left', color: 'orange',
+        text: `Refund from ${t.note || 'a purchase'} (${money(t.refund.amount || t.amount)}) not back after ${status.waiting} days. Time to follow up.` });
+    }
+  }
+  for (const doc of state.documents || []) {
+    const s = docStatus(doc, today);
+    if (s.expired || s.soon) {
+      alerts.push({ key: `doc|${doc.id}|${doc.expires}`, icon: docKind(doc.kind).icon, color: s.expired ? 'red' : 'orange',
+        text: s.expired ? `${doc.name} ran out on ${shortDate(doc.expires, today)}. Renew it.` : `${doc.name} runs out ${s.days === 0 ? 'today' : `in ${s.days} day${s.days === 1 ? '' : 's'}`} (${shortDate(doc.expires, today)}).` });
+    }
+  }
+  return alerts;
+}
+
+// ---------- The year in review
+
+export function yearReview(transactions, year, today = todayISO()) {
+  const start = `${year}-01-01`;
+  const end = `${year}-12-31`;
+  const list = inRange(transactions, start, end);
+  const t = totals(list);
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    month: i,
+    total: totals(list.filter(x => Number(x.date.slice(5, 7)) === i + 1)).expense,
+  }));
+  const biggestMonth = months.reduce((a, b) => (b.total > a.total ? b : a), months[0]);
+  const expenses = list.filter(x => x.type === 'expense');
+  const biggest = expenses.slice().sort((a, b) => b.amount - a.amount)[0] || null;
+  const lastDay = today < end && today >= start ? today : end;
+  const days = Math.max(1, daysBetween(start, lastDay) + 1);
+  const spendDays = new Set(expenses.map(x => x.date)).size;
+  return {
+    year, start, end, ...t, count: list.length, top: byCategory(list).slice(0, 3), months, biggestMonth, biggest,
+    perDay: Math.round(t.expense / days / 100) * 100, noSpendDays: Math.max(0, days - spendDays), days,
+  };
 }
