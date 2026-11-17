@@ -68,8 +68,8 @@ async function postJson(body) {
 function signature(state) {
   const pick = list => (list || []).map(r => `${r.id}:${r.updatedAt || r.createdAt || 0}`).sort().join(',');
   const s = { ...(state.settings || {}) };
-  for (const key of ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email']) delete s[key];
-  return JSON.stringify([pick(state.transactions), pick(state.bills), pick(state.goals), pick(state.emis), pick(state.recurring),
+  for (const key of ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart']) delete s[key];
+  return JSON.stringify([pick(state.transactions), pick(state.bills), pick(state.goals), pick(state.emis), pick(state.recurring), pick(state.challenges),
     JSON.stringify(state.categories), JSON.stringify(state.accounts), Object.keys(state.deleted || {}).sort().join(','),
     JSON.stringify(state.budgets), JSON.stringify(s), (state.sms && state.sms.pending || []).map(p => p.id).sort().join(',')]);
 }
@@ -192,7 +192,7 @@ export function openBackupSync() {
                   <span class="switch"><input type="checkbox" data-sync ${st.sync.enabled ? 'checked' : ''}><span></span></span></div></label>
                  ${st.sync.enabled ? `<button class="row tap" data-sync-now>${tile('cloud-arrow-up', 'teal')}<div class="row-main"><span class="row-title" style="flex:1">Sync Now</span><span class="row-value">${esc(when(st.sync.lastPull))}</span></div></button>` : ''}
                  <button class="row tap" data-restore>${tile('clock-counter-clockwise', 'indigo')}<div class="row-main"><span class="row-title" style="flex:1">Restore a Google Drive Backup</span><i class="ph ph-caret-right row-chevron"></i></div></button>`
-              : `<button class="row tap" data-connect>${tile('google-logo', 'blue')}<div class="row-main"><span class="row-title" style="flex:1;color:var(--blue)">Connect Your Google Account</span><i class="ph ph-caret-right row-chevron"></i></div></button>`}
+              : `<button class="row tap" data-connect>${tile('google-logo', 'blue')}<div class="row-main"><span class="row-title row-action" style="flex:1">Connect Your Google Account</span><i class="ph ph-caret-right row-chevron"></i></div></button>`}
           </div>
           <div class="section-footer">${connected
             ? 'Turn this on here and on your other device (the website on a computer, or another phone) with the same Google helper link: both then have the same transactions. Google Drive also keeps a dated backup a day for two weeks. Bill photos stay on the device they were taken on.'

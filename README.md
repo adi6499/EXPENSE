@@ -37,8 +37,19 @@ install it and start adding expenses. Everything is saved on the phone.
   small read-only script into your own Google account (js/email-script.js). Expenses asks it for new bank alert
   emails and reads them like bank SMS; the same payment from an SMS and an email is added once. Uses the internet
   only to reach your own script.
-- **Liquid Glass**: the tab bar floats as a glass island with a gliding selection pill; the top bar, pop-ups, menus,
-  toasts and the add button are glass too. Settings → Appearance → Liquid Glass turns it off.
+- **The Jinharsh look** (1.5.0): the Jinharsh UI kit — `css/jinharsh-ui.css` and `js/jinharsh-ui.js`, kept exactly
+  as they came — with `css/jis.css` pointing the app's own pieces at it. Flat calm page, Geist type (bundled,
+  `fonts/Geist.woff2`, SIL Open Font License), black/white buttons and one JIS-orange accent for the main action, solid
+  cards, glass only on what floats. Every screen opens with one card that answers its question; number tiles filter
+  (Transactions); rows open in place. Settings → Appearance → Glass sets the glass from Solid to Clear (default).
+- **Magnifying-glass bars** (`js/magnify.js`): in Chrome, Edge and the Android app, what passes under the bottom and
+  top bars shows sharp, enlarged and stretched towards the rim (an SVG displacement map in backdrop-filter, made per
+  bar size). Safari, iPhone browsers and Firefox can't bend what is behind an element and keep plain clear glass.
+- **1.5.0 extras**: quick-add buttons (Summary and the widget's two one-tap buttons), family sharing (an invite code
+  on WhatsApp joins the same Google-Drive copy; each entry says who added it), net worth and investments (SIP / FD /
+  PPF messages count as saving, not spending), GST read from scanned bills (claim report column), tax-saving totals for
+  the financial year (80C, 80D, NPS, HRA…), an evening note at 9 PM and renewal nudges for subscriptions, Hide Amounts,
+  no-spend challenges, Hindi and Gujarati (Settings → Language), a Getting started list and What's new.
 - **Split a bill**: Split in the editor shares an expense equally; your share is spending, the rest goes to Lent &
   Borrowed, and each person gets a WhatsApp picture with a UPI "scan to pay" code for their exact share
   (js/qr.js is the QR encoder; Settings → Payments → Your UPI ID).

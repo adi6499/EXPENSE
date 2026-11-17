@@ -227,7 +227,7 @@ export function messagesCardHTML() {
       <div class="section-title"><h2>From Messages</h2><button class="link" data-sms-act="all">Add All</button></div>
       <div class="list sms-list">
         ${shown.map(f => findingRow(f)).join('')}
-        ${list.length > shown.length ? `<button class="row tap" data-sms-act="review"><div class="row-main"><span class="row-title" style="flex:1;color:var(--blue)">See All ${list.length}</span><i class="ph ph-caret-right row-chevron"></i></div></button>` : ''}
+        ${list.length > shown.length ? `<button class="row tap" data-sms-act="review"><div class="row-main"><span class="row-title row-action" style="flex:1">See All ${list.length}</span><i class="ph ph-caret-right row-chevron"></i></div></button>` : ''}
       </div>
       <div class="section-footer">Tap to check one, ${icon('plus-circle', true)} to add it as it is, or swipe left to ignore.</div>
     </div>`;
@@ -568,7 +568,7 @@ export function openIphoneSetup() {
         <div class="section">
           <div class="list">
             <div class="row"><div class="row-main"><span class="row-title" style="flex:1;font-size:15px;overflow-wrap:anywhere;white-space:normal">${esc(link)}</span></div></div>
-            <button class="row tap" data-copy><div class="row-main"><span class="row-title" style="flex:1;color:var(--blue)">Copy Link</span>${icon('copy')}</div></button>
+            <button class="row tap" data-copy><div class="row-main"><span class="row-title row-action" style="flex:1">Copy Link</span>${icon('copy')}</div></button>
           </div>
           <div class="section-footer">Each bank message then opens Expenses and is added (or listed for a quick check). Use Expenses in <b>Safari</b> for this — iPhone keeps a Home Screen app’s data separate from Safari’s. On Android, the Expenses app reads bank messages by itself.</div>
         </div>`;

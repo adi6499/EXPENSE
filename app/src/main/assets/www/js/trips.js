@@ -60,7 +60,7 @@ export function openTrips() {
           <div class="list">
             ${active
               ? `<button class="row tap" data-trip-end>${tile('stop', 'red')}<div class="row-main"><span class="row-title" style="flex:1">End “${esc(active)}”</span></div></button>`
-              : `<button class="row tap" data-start>${tile('airplane-tilt', 'cyan')}<div class="row-main"><span class="row-title" style="flex:1;color:var(--blue)">Start a Trip or Event</span></div></button>`}
+              : `<button class="row tap" data-start>${tile('airplane-tilt', 'cyan')}<div class="row-main"><span class="row-title row-action" style="flex:1">Start a Trip or Event</span></div></button>`}
           </div>
           <div class="section-footer">While it’s on, everything you add is tagged with it — even bank messages. You can also tag any transaction from its Tag button.</div>
         </div>

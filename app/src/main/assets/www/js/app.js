@@ -16,6 +16,14 @@ import { syncBillReminders, openBills } from './bills.js';
 import { checkEmails } from './email.js';
 import { syncNow, scheduleSync, backupToFolderIfDue } from './sync.js';
 import { nav } from './nav.js';
+import {
+  applyPrivacy, maybeShowWhatsNew, doQuickAdd, syncWidgetQuick, openQuickAdds,
+} from './easy.js';
+import { setLanguage } from './i18n.js';
+import { refresh as refreshMagnifier, clear as clearMagnifier } from './magnify.js';
+import { turnOn as turnOnMessages } from './messages.js';
+import { openEmailSetup } from './email.js';
+import { openBackupSync } from './sync.js';
 
 const TAB_ICONS = { home: 'house', activity: 'list-bullets', insights: 'chart-pie-slice', settings: 'gear-six' };
 const LOCK_AFTER_MS = 60_000;
@@ -34,17 +42,36 @@ window.__setInsets = setInsets;
 
 const TAB_ORDER = { home: 0, activity: 1, insights: 3, settings: 4 }; // 2 is the add button
 
+/** The Jinharsh UI kit's glass (js/jinharsh-ui.js): guarded, so the app never fails to draw over it. */
+const kit = fn => { try { if (window.JUI) fn(window.JUI); } catch (err) { console.warn('UI kit:', err); } };
+
+/** The magnifying glass on the phone's bottom bar (and the top bars); the side menu on a computer stays plain glass. */
+function placeLens() {
+  const bar = $('.tabbar');
+  if (!bar) return;
+  if (window.innerWidth < 900) bar.setAttribute('data-mag', '');
+  else if (bar.hasAttribute('data-mag')) {
+    bar.removeAttribute('data-mag');
+    clearMagnifier(bar);
+  }
+  refreshMagnifier();
+}
+let lensTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(lensTimer); lensTimer = setTimeout(placeLens, 200); }, { passive: true });
+
 function applyTheme() {
   const mode = store.state.settings.appearance;
   const dark = mode === 'dark' || (mode === 'auto' && native.isSystemDark());
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  // Liquid Glass (on unless turned off); the edge lens only where the browser can draw it
   const html = document.documentElement;
-  html.classList.toggle('glass', store.state.settings.glass !== false);
-  html.classList.toggle('lens', /Chrome\/\d/.test(navigator.userAgent));
+  html.dataset.theme = dark ? 'dark' : 'light';
+  html.classList.toggle('dark', dark); // the kit's dark mode
+  html.classList.add('ju', 'glass');
+  html.classList.remove('lens');
+  kit(J => J.setGlass(store.state.settings.glassLevel));
+  refreshMagnifier();
   native.setAppearance(dark);
   const themeColor = $('#theme-color');
-  if (themeColor) themeColor.content = dark ? '#000000' : '#f2f2f7';
+  if (themeColor) themeColor.content = dark ? '#0a0a0a' : '#f4f4f6';
 }
 window.__onSystemTheme = applyTheme;
 
@@ -70,7 +97,6 @@ function goTo(tab) {
 }
 
 function renderAll() {
-  $('#home-date').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
   screens[activeTab].render();
   for (const name of Object.keys(screens)) if (name !== activeTab) dirty.add(name);
 }
@@ -92,6 +118,7 @@ function syncPhoneExtras() {
       ? `Safe to spend today ${store.money(safe.perDay)}`
       : budget ? `${store.money(Math.max(0, budget - month))} left this month` : new Date().toLocaleDateString('en-IN', { month: 'long' });
     native.updateWidget(store.money(todaySpent), store.money(month), line, store.money(0));
+    syncWidgetQuick();
   }, 600);
 }
 
@@ -117,7 +144,7 @@ function lock() {
   lockEl = document.createElement('div');
   lockEl.className = 'lock';
   lockEl.innerHTML = `
-    ${icon('lock-simple', true).replace('<i ', '<i style="font-size:56px;color:var(--blue)" ')}
+    ${icon('lock-simple', true).replace('<i ', '<i style="font-size:56px;color:var(--text)" ')}
     <h2>Expenses is locked</h2>
     <p>Use your fingerprint, face or phone PIN.</p>
     <button class="btn">Unlock</button>`;
@@ -211,7 +238,26 @@ window.__onAction = action => {
   if (action === 'bills') whenUnlocked(() => openBills());
   if (action === 'home') goTo('home');
   if (action === 'sms') readMessages(true);
+  if (/^quick\d$/.test(action)) whenUnlocked(() => quickFromWidget(action));
 };
+
+/** A one-tap button on the home-screen widget: adds it and says so. */
+function quickFromWidget(action) {
+  const q = store.state.settings.quickAdds[Number(action.slice(5))];
+  if (!q || !store.state.settings.onboarded) return;
+  goTo('home');
+  setTimeout(() => doQuickAdd(q.id), 250);
+}
+
+/** The Getting started list on Summary: each step's button. */
+function quickStartStep(key) {
+  if (key === 'add') addNew();
+  else if (key === 'budget') openBudgets();
+  else if (key === 'sms') turnOnMessages().then(() => renderAll());
+  else if (key === 'email') openEmailSetup();
+  else if (key === 'quick') openQuickAdds();
+  else if (key === 'backup') openBackupSync();
+}
 
 // ---------- Website: the browser's back button
 // While a panel is open or another tab is showing, one extra history entry exists, so Back
@@ -336,7 +382,7 @@ function boot() {
 
   const activity = createActivity($('#activity'), { openEditor, filterButton: $('#activity-filter') });
   screens = {
-    home: createHome($('#home'), { openEditor: (tx, preset) => (tx ? openEditor(tx) : addNew(preset)), goTo, openBudgets }),
+    home: createHome($('#home'), { openEditor: (tx, preset) => (tx ? openEditor(tx) : addNew(preset)), goTo, openBudgets, quickStartStep }),
     activity,
     insights: createInsights($('#insights'), {
       openEditor,
@@ -362,7 +408,10 @@ function boot() {
   }));
   $('#add-btn').addEventListener('click', () => addNew());
   $$('.tab-page').forEach(bindNavbar);
+  applyPrivacy();
   renderAll();
+  if (store.state.settings.language !== 'en') setLanguage(store.state.settings.language);
+  placeLens();
 
   const launchAction = native.consumeLaunchAction();
   const sharedText = native.consumeSharedText();
@@ -379,7 +428,9 @@ function boot() {
     if (launchAction === 'add' && !lockEl) setTimeout(() => addNew(), 300);
     if (launchAction === 'speak' && !lockEl) setTimeout(() => addNew({ speak: true }), 300);
     if (launchAction === 'bills') whenUnlocked(() => setTimeout(openBills, 300));
+    if (/^quick\d$/.test(launchAction)) whenUnlocked(() => quickFromWidget(launchAction));
     if (store.state.transactions.length) askToKeepData();
+    whenUnlocked(() => setTimeout(maybeShowWhatsNew, 500));
   }
 
   syncPhone();

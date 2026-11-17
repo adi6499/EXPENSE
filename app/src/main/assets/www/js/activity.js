@@ -1,8 +1,23 @@
-// The Transactions tab: search, filter, grouped by day, swipe to delete.
+// The Transactions tab, built the Hub way: search, one card that answers "how much?", number
+// tiles that filter (press again to clear), days of rows that open in place, swipe to delete.
 import { store } from './store.js';
 import * as L from './logic.js';
-import { $, esc, icon, tile, segmented, bindSegmented, bindSwipeRows, openFormSheet, actionSheet, toast, haptic } from './ui.js';
-import { txRow } from './rows.js';
+import { $, esc, icon, tile, bindSwipeRows, openFormSheet, actionSheet, toast, haptic } from './ui.js';
+import { txRow, describe } from './rows.js';
+import { native } from './native.js';
+import { showPhoto } from './editor.js';
+
+/** The tiles: each is a count that filters the list below. */
+const TYPE_TILES = [
+  { key: 'expense', label: 'Spent', test: t => t.type === 'expense' },
+  { key: 'income', label: 'Received', test: t => t.type === 'income' },
+  { key: 'moved', label: 'Moved & lent', test: t => t.type === 'transfer' || t.type === 'loan' },
+  { key: 'bank', label: 'From your bank', test: t => !!t.sms },
+];
+const typeTest = key => (TYPE_TILES.find(x => x.key === key) || {}).test || null;
+
+/** The kit's gliding rows (cosmetic: a failure just skips the glide). */
+const flip = el => { try { return window.JUI ? window.JUI.flip(el) : () => {}; } catch { return () => {}; } };
 
 const PAGE_SIZE = 150;
 
@@ -26,22 +41,22 @@ export function createActivity(root, { openEditor, filterButton }) {
 
   root.innerHTML = `
     <label class="search">${icon('magnifying-glass')}<input type="search" placeholder="Search" autocomplete="off" spellcheck="false" enterkeyhint="search"><button class="search-clear" hidden aria-label="Clear">${icon('x-circle', true)}</button></label>
-    <div class="toolbar">${segmented([{ value: 'all', label: 'All' }, { value: 'expense', label: 'Expenses' }, { value: 'income', label: 'Income' }], 'all', 'type')}</div>
+    <div class="act-answer"></div>
+    <div class="ju-tiles act-tiles"></div>
     <div class="chips act-chips" style="padding-bottom:12px"></div>
-    <div class="summary-line act-summary"></div>
     <div class="act-list"></div>`;
   const searchInput = $('input', root);
   const clearBtn = $('.search-clear', root);
 
   let asked = null; // the question read from the search box: { text, period, kind }
+  let openId = null; // the row that is open in place
 
-  function filtered() {
+  /** Everything the search and filters allow, before the tiles' own filter. */
+  function filteredBase() {
     asked = f.query.trim() ? L.parseQuery(f.query) : null;
     const q = asked ? asked.text : '';
     const period = f.period || (asked && asked.period);
-    const type = f.type !== 'all' ? f.type : (asked && asked.kind) || 'all';
     return L.sortTransactions(store.state.transactions.filter(t => {
-      if (type !== 'all' && t.type !== type) return false;
       if (period && (t.date < period.start || t.date > period.end)) return false;
       if (f.categoryId && t.categoryId !== f.categoryId) return false;
       if (f.accountId && t.accountId !== f.accountId && t.toAccountId !== f.accountId) return false;
@@ -57,6 +72,10 @@ export function createActivity(root, { openEditor, filterButton }) {
       }
       return true;
     }));
+  }
+
+  function currentType() {
+    return f.type !== 'all' ? f.type : (asked && asked.kind) || 'all';
   }
 
   function renderChips() {
@@ -79,44 +98,129 @@ export function createActivity(root, { openEditor, filterButton }) {
     filterButton.innerHTML = icon('funnel', active);
   }
 
+  /** The answer first: one card with the figure for whatever is being looked at. */
+  function answerHTML(list, type) {
+    const t = L.totals(list);
+    const period = f.period || (asked && asked.period);
+    let figure = t.expense;
+    let verb = 'spent';
+    if (type === 'income' || (type !== 'moved' && !t.expense && t.income)) { figure = t.income; verb = 'received'; }
+    if (type === 'moved') { figure = list.reduce((sum, x) => sum + x.amount, 0); verb = 'moved or lent'; }
+    const cat = f.categoryId ? store.category(f.categoryId).name : '';
+    const what = asked && asked.text ? ` on “${asked.text}”` : cat ? ` on ${cat}` : f.tag ? ` on ${f.tag}` : '';
+    const when = period ? period.label : 'All time';
+    const extra = verb === 'spent' && t.income ? ` · received ${store.money(t.income)}` : '';
+    return `<div class="ju-card act-answer-card">
+      <div class="ju-eyebrow">${esc(when)}${type === 'bank' ? ' · from your bank' : ''}</div>
+      <div class="big num">${esc(store.money(figure))}</div>
+      <div class="ju-muted">${esc(verb)}${esc(what)} · ${list.length} transaction${list.length === 1 ? '' : 's'}${esc(extra)}</div>
+    </div>`;
+  }
+
+  /** Counts that filter: press one to show only those, press it again to show everything. */
+  function tilesHTML(base, type) {
+    return TYPE_TILES.map(x => {
+      const items = base.filter(x.test);
+      if (!items.length && x.key === 'bank') return '';
+      const sum = items.reduce((total, t) => total + (t.type === 'income' && x.key === 'bank' ? 0 : t.amount), 0);
+      return `<button class="ju-tile ${type === x.key ? 'on' : ''}" data-type="${x.key}" aria-pressed="${type === x.key}">
+        <b>${items.length}</b><span>${esc(x.label)}</span><small class="num">${x.key === 'bank' ? 'added for you' : esc(store.money(sum))}</small></button>`;
+    }).join('');
+  }
+
+  /** What opens under a row when it is pressed: its details and its buttons. */
+  function openHTML(t) {
+    const d = describe(t);
+    const account = store.account(t.accountId);
+    const facts = [];
+    facts.push(['Date', L.dayLabel(t.date)]);
+    if (t.type === 'expense' || t.type === 'income') facts.push(['Category', store.category(t.categoryId).name]);
+    if (t.type === 'transfer') facts.push(['Moved', d.sub.replace(/^Transfer · /, '')]);
+    else if (account) facts.push([t.type === 'income' ? 'Received in' : 'Paid with', account.name]);
+    if (t.type === 'loan') facts.push([t.direction === 'in' ? 'Got from' : 'Gave to', t.person]);
+    if (t.note && t.note.length > 24) facts.push(['Note', t.note]);
+    if (t.tag) facts.push(['Trip or event', t.tag]);
+    if (t.by) facts.push(['Added by', t.by]);
+    if (t.business) facts.push(['Business', t.gst ? `Yes · GST ${store.money(t.gst)}` : 'Yes']);
+    if (t.warranty) facts.push(['Warranty until', L.shortDate(t.warranty)]);
+    if (t.recurringId) facts.push(['Repeats', 'Yes']);
+    if (t.sms) facts.push(['Added from', 'your bank’s message']);
+    return `<div class="tx-open" data-key="open-${esc(t.id)}" data-open-for="${esc(t.id)}">
+      <dl class="tx-facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
+      <div class="tx-open-acts">
+        <button class="ju-btn primary sm" data-tx-edit>${icon('pencil-simple')} Edit</button>
+        ${t.type === 'expense' || t.type === 'income' ? `<button class="ju-btn sm" data-tx-again>${icon('copy')} Add Again Today</button>` : ''}
+        ${t.photo ? `<button class="ju-btn sm" data-tx-photo>${icon('image')} Photo</button>` : ''}
+        <button class="ju-btn ghost sm tx-delete" data-tx-delete>${icon('trash')} Delete</button>
+      </div>
+    </div>`;
+  }
+
+  function rowEl(id) {
+    return [...$('.act-list', root).querySelectorAll('.swipe-row')].find(r => r.dataset.id === id) || null;
+  }
+
+  function placeOpen() {
+    const old = $('.tx-open', root);
+    if (old) old.remove();
+    root.querySelectorAll('.swipe-row.is-open').forEach(r => r.classList.remove('is-open'));
+    const t = openId && store.state.transactions.find(x => x.id === openId);
+    const row = t && rowEl(openId);
+    if (!row) { openId = null; return; }
+    row.classList.add('is-open');
+    row.insertAdjacentHTML('afterend', openHTML(t));
+  }
+
+  /** Pressing a row opens it in place (no pop-up); pressing it again closes it. */
+  function toggleOpen(id) {
+    const done = flip($('.act-list', root));
+    openId = openId === id ? null : id;
+    placeOpen();
+    done();
+    haptic('selection');
+  }
+
   function render() {
     renderChips();
-    const list = filtered();
-    const t = L.totals(list);
-    const summary = $('.act-summary', root);
+    const base = filteredBase();
+    const type = currentType();
+    const test = typeTest(type);
+    const list = test ? base.filter(test) : base;
+    const answerEl = $('.act-answer', root);
+    const tilesEl = $('.act-tiles', root);
     const listEl = $('.act-list', root);
     if (!store.state.transactions.length) {
-      summary.textContent = '';
-      listEl.innerHTML = `<div class="empty fade-in">${icon('receipt')}<strong>No transactions</strong>Everything you add shows up here.</div>`;
+      answerEl.innerHTML = '';
+      tilesEl.innerHTML = '';
+      listEl.innerHTML = `<div class="empty fade-in">${icon('receipt')}<strong>No transactions</strong>Everything you add shows up here.
+        <div><button class="ju-btn primary" data-act-add>${icon('plus')} Add Your First Expense</button></div></div>`;
       return;
     }
+    answerEl.innerHTML = answerHTML(list, type);
+    tilesEl.innerHTML = tilesHTML(base, type);
     if (!list.length) {
-      summary.textContent = '';
-      listEl.innerHTML = `<div class="empty fade-in">${icon('magnifying-glass')}<strong>No results</strong>Try a different search or filter.</div>`;
+      listEl.innerHTML = `<div class="empty fade-in">${icon('magnifying-glass')}<strong>Nothing here</strong>Nothing matches this search or filter.
+        <div><button class="ju-btn primary" data-act-reset>Show Everything</button></div></div>`;
       return;
-    }
-    const parts = [`${list.length} transaction${list.length === 1 ? '' : 's'}`];
-    if (t.expense) parts.push(`spent ${store.money(t.expense)}`);
-    if (t.income) parts.push(`received ${store.money(t.income)}`);
-    summary.textContent = parts.join(' · ');
-    // A question ("petrol last 3 months"): answer it in words
-    if (asked && (asked.period || asked.kind)) {
-      const period = f.period || asked.period;
-      const income = asked.kind === 'income' || (!t.expense && t.income);
-      const what = asked.text ? ` on “${asked.text}”` : '';
-      const when = period ? ` ${period.label.charAt(0).toLowerCase()}${period.label.slice(1)}` : '';
-      summary.innerHTML = `<div class="answer-card"><div class="answer-amount">${esc(store.money(income ? t.income : t.expense))}</div>
-        <div class="answer-text">${income ? 'Received' : 'Spent'}${esc(what)}${esc(when)} · ${list.length} time${list.length === 1 ? '' : 's'}</div></div>`;
     }
 
     const shown = list.slice(0, limit);
     const groups = L.groupByDay(shown);
     listEl.innerHTML = groups.map(g => `
-      <div class="section" style="margin-bottom:22px">
-        <div class="day-header"><span>${esc(L.dayLabel(g.date))}</span><span class="num">${esc(store.money(g.net, { sign: true }))}</span></div>
+      <div class="act-day">
+        <div class="ju-group"><span>${esc(L.dayLabel(g.date))}</span><span class="num">${esc(store.money(g.net, { sign: true }))}</span></div>
         <div class="list">${g.items.map(x => txRow(x)).join('')}</div>
       </div>`).join('') +
-      (list.length > limit ? `<div style="padding:0 16px 16px"><button class="btn secondary act-more">Show ${Math.min(PAGE_SIZE, list.length - limit)} more</button></div>` : '');
+      (list.length > limit ? `<div style="padding:0 16px 16px"><button class="ju-btn act-more" style="width:100%">Show ${Math.min(PAGE_SIZE, list.length - limit)} more</button></div>` : '');
+    if (openId) placeOpen();
+  }
+
+  function resetAll() {
+    Object.assign(f, { query: '', type: 'all', period: null, categoryId: null, accountId: null, tag: null, person: null });
+    searchInput.value = '';
+    clearBtn.hidden = true;
+    limit = PAGE_SIZE;
+    render();
   }
 
   // ---- Events
@@ -140,15 +244,41 @@ export function createActivity(root, { openEditor, filterButton }) {
     render();
   });
 
-  bindSegmented(root, (name, value) => {
-    if (name !== 'type') return;
-    f.type = value;
-    if (f.categoryId && value !== 'all' && store.category(f.categoryId).type !== value) f.categoryId = null;
-    limit = PAGE_SIZE;
-    render();
-  });
-
   root.addEventListener('click', e => {
+    const tileBtn = e.target.closest('[data-type]');
+    if (tileBtn) {
+      const value = f.type === tileBtn.dataset.type ? 'all' : tileBtn.dataset.type;
+      f.type = value;
+      if (f.categoryId && (value === 'expense' || value === 'income') && store.category(f.categoryId).type !== value) f.categoryId = null;
+      limit = PAGE_SIZE;
+      haptic('selection');
+      const done = flip($('.act-list', root));
+      render();
+      done();
+      return;
+    }
+    if (e.target.closest('[data-act-add]')) { openEditor(); return; }
+    if (e.target.closest('[data-act-reset]')) { resetAll(); return; }
+    const open = e.target.closest('.tx-open');
+    if (open) {
+      const tx = store.state.transactions.find(t => t.id === open.dataset.openFor);
+      if (!tx) return;
+      if (e.target.closest('[data-tx-edit]')) openEditor(tx);
+      else if (e.target.closest('[data-tx-again]')) {
+        const { type, amount, categoryId, accountId, note, tag, business } = tx;
+        const copy = store.addTransaction({ type, amount, categoryId, accountId, note, ...(tag ? { tag } : {}), ...(business ? { business } : {}), date: L.todayISO() });
+        haptic('success');
+        toast(`Added again for today · ${store.money(amount)}`, { iconName: 'copy', actionText: 'Undo', duration: 5000, onAction: () => store.deleteTransaction(copy.id) });
+      } else if (e.target.closest('[data-tx-photo]')) {
+        native.photoUrl(tx.id).then(url => { if (url) showPhoto(url); });
+      } else if (e.target.closest('[data-tx-delete]')) {
+        openId = null;
+        const removed = store.deleteTransaction(tx.id);
+        haptic('warning');
+        if (removed) toast('Transaction deleted', { actionText: 'Undo', duration: 6000, onAction: () => store.restoreTransaction(removed) });
+      }
+      return;
+    }
     const clear = e.target.closest('[data-clear]');
     if (clear) {
       f[clear.dataset.clear] = null;
@@ -163,10 +293,7 @@ export function createActivity(root, { openEditor, filterButton }) {
   });
 
   bindSwipeRows(root, {
-    onTap: id => {
-      const tx = store.state.transactions.find(t => t.id === id);
-      if (tx) openEditor(tx);
-    },
+    onTap: id => toggleOpen(id),
     onDelete: id => {
       const removed = store.deleteTransaction(id);
       if (removed) toast('Transaction deleted', { actionText: 'Undo', duration: 6000, onAction: () => store.restoreTransaction(removed) });
@@ -264,13 +391,8 @@ export function createActivity(root, { openEditor, filterButton }) {
       f.query = '';
       searchInput.value = '';
       clearBtn.hidden = true;
-      if (type) {
-        f.type = type;
-        const seg = $('.segmented', root);
-        const buttons = [...seg.querySelectorAll('button')];
-        buttons.forEach(b => b.classList.toggle('on', b.dataset.value === type));
-        seg.style.setProperty('--i', buttons.findIndex(b => b.dataset.value === type));
-      }
+      f.type = type || 'all';
+      openId = null;
       limit = PAGE_SIZE;
       render();
     },

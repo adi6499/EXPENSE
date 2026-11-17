@@ -306,6 +306,11 @@ export const native = {
     if (bridge && bridge.updateWidget) { try { bridge.updateWidget(today, month, line, zero); } catch { /* older app */ } }
   },
 
+  /** The widget's two one-tap buttons ("Chai ₹20"; '' hides one). */
+  setWidgetQuick(first, second) {
+    if (bridge && bridge.setWidgetQuick) { try { bridge.setWidgetQuick(first || '', second || ''); } catch { /* older app */ } }
+  },
+
   // ---- Scanning a bill (Android: the phone reads the text on the photo)
 
   canScan() {

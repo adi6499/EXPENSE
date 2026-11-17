@@ -72,7 +72,8 @@ export function openPeople() {
     render: content => {
       const people = L.personBalances(store.state.transactions);
       if (!people.length) {
-        content.innerHTML = `<div class="empty" style="padding-top:14vh">${icon('hand-coins', true)}<strong>Nobody owes anybody</strong>When you lend money or borrow some, add it as a Loan and it’s tracked here until it’s paid back.</div>`;
+        content.innerHTML = `<div class="empty" style="padding-top:8vh">${icon('hand-coins', true)}<strong>Nobody owes anybody</strong>When you lend money or borrow some, add it as a Loan and it’s tracked here until it’s paid back.
+          <div><button class="btn" data-loan-add>${icon('plus')} Add a Loan</button></div></div>`;
         return;
       }
       const theyOwe = people.filter(p => p.balance > 0).reduce((s, p) => s + p.balance, 0);
@@ -86,6 +87,9 @@ export function openPeople() {
         <div class="section-footer">Tap someone to record money back, lend more, or send a reminder.</div></div>`;
     },
   });
-  page.content.addEventListener('click', e => handlePeopleClick(e));
+  page.content.addEventListener('click', e => {
+    if (e.target.closest('[data-loan-add]')) { openEditor(null, { type: 'loan' }); return; }
+    handlePeopleClick(e);
+  });
   unsubscribe = store.subscribe(() => page.refresh());
 }

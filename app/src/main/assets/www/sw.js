@@ -1,7 +1,7 @@
 // Offline support for the website version. The Android app loads files from the APK and never
 // registers this. Network first, so a reload always picks up a new version; the cache is the
 // fallback when there is no connection.
-const VERSION = 'v5';
+const VERSION = 'v7';
 const CACHE = `expenses-${VERSION}`;
 
 // Everything the app needs to start with no connection (checked by tests/web.test.js)
@@ -10,18 +10,25 @@ const PRECACHE = [
   'index.html',
   'manifest.webmanifest',
   'css/app.css',
+  'css/jinharsh-ui.css',
+  'css/jis.css',
   'js/activity.js',
   'js/app.js',
   'js/bills.js',
   'js/calendar.js',
   'js/charts.js',
   'js/claims.js',
+  'js/easy.js',
   'js/editor.js',
   'js/email-script.js',
   'js/email.js',
+  'js/family.js',
   'js/home.js',
+  'js/i18n.js',
   'js/insights.js',
+  'js/jinharsh-ui.js',
   'js/logic.js',
+  'js/magnify.js',
   'js/manage.js',
   'js/nav.js',
   'js/messages.js',
@@ -39,7 +46,10 @@ const PRECACHE = [
   'js/store.js',
   'js/trips.js',
   'js/ui.js',
+  'js/worth.js',
   'fonts/Inter.woff2',
+  'fonts/Geist.woff2',
+  'fonts/Geist-LICENSE.txt',
   'vendor/phosphor/regular/style.css',
   'vendor/phosphor/regular/Phosphor.woff2',
   'vendor/phosphor/fill/style.css',

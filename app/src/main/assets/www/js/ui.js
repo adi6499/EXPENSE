@@ -1,5 +1,6 @@
 // Reusable iOS-style building blocks: sheets, alerts, action sheets, pushed pages, toasts,
 // swipe-to-delete rows, the number pad and the calendar.
+import { refresh as refreshMagnifier } from './magnify.js';
 import { native } from './native.js';
 import * as L from './logic.js';
 
@@ -281,6 +282,11 @@ export function toast(text, { actionText, onAction, duration = 4000, iconName } 
 
 // ---------- Pushed pages (navigation stack, slides in from the right)
 
+/** The magnifying glass follows the bars on screen (cosmetic: never allowed to break a page). */
+function relens() {
+  refreshMagnifier();
+}
+
 /**
  * Pushes a page over the current screen. render(content, page) fills it and is called again by
  * page.refresh(). Returns { el, content, close, refresh }.
@@ -291,12 +297,12 @@ export function pushPage({ title, backText = 'Back', render, rightHTML = '', onR
   const el = document.createElement('section');
   el.className = 'page pushed';
   el.innerHTML = `
-    <header class="navbar solid-title">
+    <header class="navbar ju-glass" data-mag="flat">
       <button class="nav-btn back">${icon('caret-left')}<span>${esc(backText)}</span></button>
       <div class="nav-title">${esc(title)}</div>
       <div class="nav-right">${rightHTML}</div>
     </header>
-    <div class="scroller"><div class="content"></div><div class="bottom-space"></div></div>`;
+    <div class="scroller"><div class="large-title-wrap"><h1 class="large-title">${esc(title)}</h1></div><div class="content"></div><div class="bottom-space"></div></div>`;
   stack.appendChild(el);
   const content = $('.content', el);
   const page = {
@@ -307,16 +313,17 @@ export function pushPage({ title, backText = 'Back', render, rightHTML = '', onR
       removeLayer();
       el.classList.remove('in');
       below.classList.remove('covered');
-      setTimeout(() => el.remove(), 380);
+      setTimeout(() => { el.remove(); relens(); }, 380);
       if (onClose) onClose();
     },
-    setTitle: text => { $('.nav-title', el).textContent = text; },
+    setTitle: text => { $('.nav-title', el).textContent = text; $('.large-title', el).textContent = text; },
   };
   const removeLayer = addLayer({ close: page.close });
   bindNavbar(el);
   $('.back', el).addEventListener('click', page.close);
   if (onRight) $('.nav-right', el).addEventListener('click', e => { if (e.target.closest('button')) onRight(e, page); });
   render(content, page);
+  relens();
   requestAnimationFrame(() => requestAnimationFrame(() => {
     el.classList.add('in');
     below.classList.add('covered');

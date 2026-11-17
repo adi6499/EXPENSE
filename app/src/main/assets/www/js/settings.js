@@ -12,6 +12,10 @@ import { openEmailSetup, emailStatusText } from './email.js';
 import { openBackupSync, backupStatusText } from './sync.js';
 import { isUpiId } from './qr.js';
 import { ensureUpiId } from './split.js';
+import { openQuickAdds, applyPrivacy } from './easy.js';
+import { openFamily, familyOn } from './family.js';
+import { LANGUAGES, setLanguage } from './i18n.js';
+import { syncBillReminders } from './bills.js';
 
 const APPEARANCE_LABELS = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 
@@ -41,10 +45,7 @@ export function createSettings(root, { applyTheme, webInstall }) {
     const app = native.isApp;
     const showInstall = !app && webInstall && webInstall.canShow();
     root.innerHTML = `
-      <div class="card banner" style="margin-top:4px">
-        <span class="app-icon" style="width:60px;height:60px;border-radius:14px;margin:0;box-shadow:none">${appGlyph()}</span>
-        <div class="banner-text"><strong>Expenses</strong>${st.transactions.length} transaction${st.transactions.length === 1 ? '' : 's'} · saved only on this ${app ? 'phone' : 'device, in this browser'}</div>
-      </div>
+      ${statusHTML(st)}
 ${showInstall ? `
       <div class="section">
         <div class="list">
@@ -53,6 +54,17 @@ ${showInstall ? `
         <div class="section-footer">Adds Expenses to your home screen or desktop. It opens like an app and works without internet.</div>
       </div>
 ` : ''}
+      <div class="section">
+        <div class="section-header">Everyday</div>
+        <div class="list">
+          ${row({ id: 'quick', iconName: 'lightning', color: 'orange', title: 'Quick Buttons', value: s.quickAdds.length ? String(s.quickAdds.length) : 'Add' })}
+          ${row({ id: 'family', iconName: 'users', color: 'blue', title: 'Family Sharing', value: familyOn() ? s.memberName : 'Off' })}
+          ${app ? switchRow({ id: 'evening', iconName: 'moon', color: 'indigo', title: 'Evening Note', checked: s.evening.enabled }) : ''}
+          ${switchRow({ id: 'hide', iconName: 'eye-slash', color: 'gray', title: 'Hide Amounts', checked: s.hideAmounts })}
+        </div>
+        <div class="section-footer">${app ? 'The evening note tells you at 9 at night what you spent today. ' : ''}Hide Amounts blurs every amount until you turn it off — handy when someone is looking.</div>
+      </div>
+
       <div class="section">
         <div class="section-header">Plan</div>
         <div class="list">
@@ -74,6 +86,7 @@ ${showInstall ? `
         <div class="list">
           ${row({ id: 'currency', iconName: 'coins', color: 'yellow', title: 'Currency', value: `${currency.code} ${currency.symbol}` })}
           ${row({ id: 'appearance', iconName: 'circle-half', color: 'blue', title: 'Appearance', value: APPEARANCE_LABELS[s.appearance] })}
+          ${row({ id: 'language', iconName: 'translate', color: 'purple', title: 'Language', value: (LANGUAGES.find(x => x.value === s.language) || LANGUAGES[0]).label })}
           ${app ? switchRow({ id: 'lock', iconName: 'fingerprint', color: 'gray', title: 'App Lock', checked: s.lock && canLock, disabled: !canLock && !s.lock }) : ''}
           ${app ? switchRow({ id: 'reminder', iconName: 'bell', color: 'red', title: 'Daily Reminder', checked: s.reminder.enabled }) : ''}
           ${app && s.reminder.enabled ? row({ id: 'reminder-time', iconName: 'clock-counter-clockwise', color: 'pink', title: 'Remind me at', value: timeLabel(s.reminder.hour, s.reminder.minute) }) : ''}
@@ -103,11 +116,45 @@ ${messagesSection(st.sms)}
           : 'Everything is saved in this browser on this device — no account, nothing is sent anywhere. Clearing your browser’s data deletes it, so save a backup now and then. To move to another device or browser, back up here and restore there.'} Import works with the CSV from the old Google Sheet tracker and most bank statements.</div>
       </div>
 
-      <div class="section">
-        <div class="list">
-          <button class="row tap destructive center" data-go="erase"><div class="row-main"><span class="row-title">Erase All Data</span></div></button>
+      <div class="set-end">
+        <button class="ju-btn ghost set-erase" data-go="erase">${icon('trash')} Erase All Data</button>
+        <div class="ju-muted ju-small" data-go="about">${app ? `Expenses ${esc(native.appVersion())}` : 'Expenses for the web'}</div>
+      </div>`;
+  }
+
+  /** The answer first: where your data is and how safe it is, and the one thing most worth doing next. */
+  function statusHTML(st) {
+    const s = st.settings;
+    const app = native.isApp;
+    const daysSince = ms => (ms ? Math.floor((Date.now() - ms) / 86400000) : Infinity);
+    const lastCopy = Math.max(s.sync.enabled ? s.sync.lastPush || 0 : 0, s.backup.last || 0, s.backup.manual || 0);
+    const copyAge = daysSince(lastCopy);
+    const smsOn = canReadMessages() && st.sms.enabled && native.smsStatus() === 'granted';
+    let next = null;
+    if (st.transactions.length >= 5 && copyAge > 14) {
+      next = {
+        title: lastCopy ? `No backup for ${copyAge} days` : 'No backup yet',
+        text: `If this ${app ? 'phone' : 'browser'} is lost or cleared, so is your record. Set it up once and it backs up by itself.`,
+        button: 'Set Up Backup', go: 'backup-sync',
+      };
+    } else if (app && canReadMessages() && !smsOn) {
+      next = { title: 'Bank messages are off', text: 'Turn them on and your spending adds itself — no typing.', button: 'Turn On', go: 'sms-on' };
+    } else if (!st.budgets.monthly) {
+      next = { title: 'No monthly budget', text: 'Set one to see what is safe to spend each day.', button: 'Set Budget', go: 'budgets' };
+    }
+    const where = s.sync.enabled ? 'synced to your Google Drive' : `saved on this ${app ? 'phone' : 'device, in this browser'}`;
+    const copied = lastCopy ? `last backup ${copyAge === 0 ? 'today' : copyAge === 1 ? 'yesterday' : `${copyAge} days ago`}` : 'no backup yet';
+    return `
+      <div class="ju-card set-answer">
+        <div class="set-id">
+          <span class="app-icon set-icon">${appGlyph()}</span>
+          <div class="grow"><b>${st.transactions.length} transaction${st.transactions.length === 1 ? '' : 's'}</b>
+            <small>${esc(where)} · ${esc(copied)}</small></div>
         </div>
-        <div class="section-footer" style="text-align:center" data-go="about">${app ? `Expenses ${esc(native.appVersion())}` : 'Expenses for the web'}</div>
+        ${next ? `<div class="set-next">
+          <div class="grow"><b>${esc(next.title)}</b><small>${esc(next.text)}</small></div>
+          <button class="ju-btn primary" data-go="${next.go}">${esc(next.button)}</button>
+        </div>` : `<div class="set-ok"><span class="ju-pill ok">${icon('check-circle', true)} All set</span><span class="ju-muted ju-small">Nothing needs doing.</span></div>`}
       </div>`;
   }
 
@@ -177,6 +224,15 @@ ${messagesSection(st.sms)}
       'sms-email': openEmailSetup,
       'sms-learned': openLearned,
       'sms-iphone': openIphoneSetup,
+      quick: openQuickAdds,
+      'sms-on': async () => { await turnOnMessages(); render(); },
+      family: openFamily,
+      language: async () => {
+        const choice = await actionSheet({ title: 'Language', actions: LANGUAGES.map(x => ({ text: x.label, value: x.value, checked: x.value === store.state.settings.language })) });
+        if (!choice) return;
+        store.setSetting('language', choice);
+        setLanguage(choice);
+      },
     };
     if (actions[go]) actions[go]();
   });
@@ -220,6 +276,21 @@ ${messagesSection(st.sms)}
     } else if (input.dataset.switch === 'sms-auto') {
       store.setSms({ autoAdd: input.checked });
       if (input.checked) toast('Bank transactions will be added as they arrive', { iconName: 'lightning' });
+    } else if (input.dataset.switch === 'hide') {
+      store.setSetting('hideAmounts', input.checked);
+      applyPrivacy();
+    } else if (input.dataset.switch === 'evening') {
+      if (input.checked) {
+        const allowed = await native.requestNotifications();
+        if (allowed && allowed.ok === false) {
+          input.checked = false;
+          alert({ title: 'Notifications are off', message: 'Allow notifications for Expenses in your phone’s settings to get the evening note.' });
+          return;
+        }
+        toast('You’ll get a note at 9 every night', { iconName: 'moon' });
+      }
+      store.setSetting('evening', { ...store.state.settings.evening, enabled: input.checked });
+      syncBillReminders();
     } else if (input.dataset.switch === 'sms-notify') {
       if (!(await setNotify(input.checked))) input.checked = false;
     }
@@ -283,12 +354,13 @@ async function deliver(fileName, mimeType, text, what) {
         { text: 'Download', value: 'save', icon: 'download-simple' },
       ];
   const choice = await actionSheet({ title: what, actions });
-  if (!choice) return;
+  if (!choice) return false;
   const result = choice === 'share'
     ? await native.shareFile(fileName, mimeType, text)
     : await native.saveFile(fileName, mimeType, text);
   if (result.ok && choice === 'save') toast(native.isApp ? 'Saved' : 'Downloaded', { iconName: 'check-circle' });
   else if (!result.ok && !result.cancelled) alert({ title: 'Couldn’t save the file', message: result.error || 'Please try again.' });
+  return !!result.ok;
 }
 
 function exportCSV() {
@@ -299,8 +371,12 @@ function exportCSV() {
   deliver(`expenses-${stamp()}.csv`, 'text/csv', L.exportCSV(store.state), `Export ${store.state.transactions.length} transactions`);
 }
 
-function backUp() {
-  deliver(`expenses-backup-${stamp()}.json`, 'application/json', store.backupJSON(), 'Back up all your data');
+async function backUp() {
+  const ok = await deliver(`expenses-backup-${stamp()}.json`, 'application/json', store.backupJSON(), 'Back up all your data');
+  if (ok) {
+    store.state.settings.backup.manual = Date.now(); // shown on Settings as "last backup"
+    store.commit();
+  }
 }
 
 export async function restore() {

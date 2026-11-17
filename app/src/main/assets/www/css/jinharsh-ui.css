@@ -1,0 +1,124 @@
+/* ============================================================================
+   Jinharsh UI kit  -  the look of Jinharsh Hub, lifted out so other apps can wear it.
+   One file. No build step. Works with plain HTML, or alongside Tailwind.
+
+   HOW TO USE
+     1. <link rel="stylesheet" href="jinharsh-ui.css">  and  <script src="jinharsh-ui.js"></script>
+     2. Put class="ju" on <html> (or on <body>). Dark mode = add class "dark" to <html>.
+     3. Use the classes below: ju-card, ju-btn, ju-glass, ju-top, ju-tabbar ...
+   THE RULES OF THIS LOOK (please keep them)
+     - The page itself is flat and calm: one grey (light) or near-black (dark). NO coloured or gradient page background.
+     - Black / white buttons. ONE accent colour (JIS orange), used sparingly.
+     - Glass only on things that FLOAT over content: the top bar, the bottom bar, the side menu, sheets and menus. Cards are solid.
+     - Animations only MOVE things; nothing starts invisible. Respect "reduce motion".
+   ============================================================================ */
+
+/* ---------- 1. colours, light and dark ---------- */
+.ju{
+  --bg:#f4f4f6; --card:#ffffff; --line:#e4e4e9; --text:#141416; --muted:#696971; --hover:#eaeaef;
+  --ink:#141416; --ink-text:#ffffff;                      /* the black button, and the text on it */
+  --accent:#c2410c; --accent-soft:#fdeee4;                /* JIS orange: the ONE accent */
+  --ok:#157a55; --ok-soft:#e4f5ed; --warn:#a15c07; --warn-soft:#fdf2dc; --bad:#c0362c; --bad-soft:#fdeae8; --blue:#1d5fd1; --blue-soft:#e8f0fe;
+  --rim:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 1px rgba(255,255,255,.55);   /* the bright edge of a pane of glass */
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 26px rgba(0,0,0,.055); --pop:0 22px 60px rgba(20,22,28,.2);
+  --ease:cubic-bezier(.25,.8,.25,1); --spring:cubic-bezier(.2,.9,.25,1.12);
+  --r-card:24px; --r-btn:999px; --r-row:14px;
+  /* glass: ONE number rules it. --g 0..1 and --gp 0%..100%, set by JUI.setGlass(0..100). 0 = solid, 30 = frosted, 100 = clear. */
+  --g:1; --gp:100%;
+  --gx-bar:rgba(246,246,248,.1); --gx-pane:rgba(250,250,252,.5); --gx-menu:rgba(250,250,252,.64);  /* the clearest form of each surface */
+  --glass:color-mix(in srgb,var(--gx-bar) var(--gp),var(--bg));      /* bars: top bar, bottom bar */
+  --pane:color-mix(in srgb,var(--gx-pane) var(--gp),var(--card));    /* panes: side menu, sheets */
+  --menu:color-mix(in srgb,var(--gx-menu) var(--gp),var(--card));    /* small menus */
+  --gblur:calc(4px + 22px*(1 - var(--g)));                           /* clear = light blur, frosted = heavy blur */
+  --lens-bright:1.07;
+}
+.ju.dark,.dark .ju{
+  --bg:#0a0a0a; --card:#151516; --line:#262628; --text:#f5f5f7; --muted:#9b9ba3; --hover:#1f1f21;
+  --ink:#f5f5f7; --ink-text:#0a0a0a; --accent:#ff9d5c; --accent-soft:#35200f;
+  --ok:#4cc38a; --ok-soft:#0f2b20; --warn:#f0b24a; --warn-soft:#33240a; --bad:#ff7a70; --bad-soft:#3a1512; --blue:#7fb0ff; --blue-soft:#12233f;
+  --rim:inset 0 1px 0 rgba(255,255,255,.12),0 0 0 1px rgba(255,255,255,.08);
+  --shadow:0 0 0 1px rgba(255,255,255,.07); --pop:0 26px 70px rgba(0,0,0,.75);
+  --gx-bar:rgba(14,14,15,.08); --gx-pane:rgba(30,30,32,.44); --gx-menu:rgba(30,30,32,.6); --lens-bright:1.55;
+}
+
+/* ---------- 2. the page ---------- */
+.ju,.ju body{background:var(--bg);color:var(--text)}
+.ju body,body.ju{margin:0;font:15px/1.5 "Geist",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.ju *{box-sizing:border-box}
+.ju h1{font-size:34px;font-weight:800;letter-spacing:-.035em;line-height:1.1;margin:0 0 6px}
+.ju h2{font-size:18px;font-weight:750;letter-spacing:-.01em;margin:0 0 10px}
+.ju .ju-muted{color:var(--muted)} .ju .ju-small{font-size:12.5px}
+.ju .ju-eyebrow{font-size:11.5px;font-weight:650;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.ju .ju-head{border-left:4px solid var(--accent);padding-left:14px;margin:6px 0 18px}   /* page title with its coloured edge */
+
+/* ---------- 3. glass: put ju-glass on anything that floats over content ---------- */
+.ju .ju-glass{background:var(--glass);-webkit-backdrop-filter:blur(max(10px,var(--gblur))) saturate(1.8);backdrop-filter:blur(max(10px,var(--gblur))) saturate(1.8);box-shadow:var(--rim),var(--shadow)}
+.ju .ju-glass.ju-pane{background:var(--pane);-webkit-backdrop-filter:blur(max(16px,var(--gblur))) saturate(1.7);backdrop-filter:blur(max(16px,var(--gblur))) saturate(1.7);box-shadow:var(--rim),var(--pop)}
+.ju .ju-glass.ju-menu{background:var(--menu)}
+/* Never nest two blurred layers: the inner one does not draw. Blur the outer veil, keep the sheet inside it un-blurred. */
+.ju .ju-overlay{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:rgba(20,22,28,.2);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
+.ju.dark .ju-overlay,.dark .ju .ju-overlay{background:rgba(0,0,0,.42)}
+.ju .ju-overlay[hidden]{display:none}
+.ju .ju-sheet{width:100%;max-width:540px;background:var(--pane);border-radius:22px;padding:24px;box-shadow:var(--rim),var(--pop);animation:ju-pop .34s var(--spring)}
+
+/* ---------- 4. bars ---------- */
+.ju .ju-top{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;padding:10px 18px;min-height:58px}
+.ju .ju-side{position:fixed;inset:12px auto 12px 12px;width:264px;border-radius:26px;padding:16px 12px;overflow:auto;z-index:20}
+.ju .ju-nav{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;font-weight:600;color:var(--text);text-decoration:none;cursor:pointer;transition:background-color .18s,transform .16s var(--ease)}
+.ju .ju-nav:hover{background:var(--hover)} .ju .ju-nav:active{transform:scale(.97)}
+.ju .ju-nav.on{background:var(--card);box-shadow:var(--shadow);font-weight:750} .ju.dark .ju-nav.on,.dark .ju .ju-nav.on{background:rgba(255,255,255,.1)}
+.ju .ju-tabbar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:40;display:flex;justify-content:space-around;align-items:center;height:66px;padding:0 6px;border-radius:33px;box-shadow:var(--rim),0 12px 34px rgba(20,22,28,.18)}
+.ju .ju-tabbar a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;border-radius:26px;font-size:10.5px;font-weight:600;color:var(--muted);text-decoration:none}
+.ju .ju-tabbar a.on{color:var(--text);font-weight:700;background:color-mix(in srgb,var(--card) 55%,transparent);box-shadow:var(--rim)}
+
+/* ---------- 5. the pieces ---------- */
+.ju .ju-card{background:var(--card);border-radius:var(--r-card);padding:22px;box-shadow:var(--shadow)}
+.ju .ju-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 20px;border-radius:var(--r-btn);border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;font-weight:650;cursor:pointer;text-decoration:none;touch-action:manipulation;white-space:nowrap;transition:transform .16s var(--ease),background-color .18s,border-color .18s,opacity .18s}
+.ju .ju-btn:hover{border-color:var(--ink)} .ju .ju-btn:active{transform:scale(.96)}
+.ju .ju-btn.primary{background:var(--ink);border-color:var(--ink);color:var(--ink-text)} .ju .ju-btn.primary:hover{opacity:.86}
+.ju .ju-btn.accent{background:var(--accent);border-color:var(--accent);color:#fff} .ju.dark .ju-btn.accent,.dark .ju .ju-btn.accent{color:#1a0d04}
+.ju .ju-btn.ok{background:var(--ok);border-color:var(--ok);color:#fff} .ju.dark .ju-btn.ok,.dark .ju .ju-btn.ok{color:#04210f}
+.ju .ju-btn.ghost{background:none;border-color:transparent} .ju .ju-btn.sm{height:36px;padding:0 14px;font-size:13.5px}
+.ju .ju-icon{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:50%;border:0;background:none;color:inherit;cursor:pointer;transition:background-color .18s,transform .16s var(--ease)} .ju .ju-icon:hover{background:var(--hover)} .ju .ju-icon:active{transform:scale(.92)}
+.ju .ju-inp{height:44px;padding:0 14px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;outline:0;transition:border-color .18s} .ju .ju-inp:focus{border-color:var(--ink)}
+.ju .ju-pill{display:inline-flex;align-items:center;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;background:var(--hover);color:var(--muted)}
+.ju .ju-pill.ok{background:var(--ok-soft);color:var(--ok)} .ju .ju-pill.warn{background:var(--warn-soft);color:var(--warn)} .ju .ju-pill.bad{background:var(--bad-soft);color:var(--bad)} .ju .ju-pill.blue{background:var(--blue-soft);color:var(--blue)}
+/* number tiles; press one to filter, "on" = chosen */
+.ju .ju-tiles{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.ju .ju-tile{display:block;text-align:left;background:var(--card);border:0;border-radius:18px;padding:16px 18px 15px;box-shadow:var(--shadow);color:inherit;font:inherit;cursor:pointer;min-width:0;transition:transform .18s var(--spring),box-shadow .2s}
+.ju .ju-tile::before{content:"";display:block;width:30px;height:5px;border-radius:3px;background:var(--tc,#3b6fd4);margin-bottom:14px}
+.ju .ju-tiles .ju-tile:nth-child(5n+2){--tc:#2f8f6b} .ju .ju-tiles .ju-tile:nth-child(5n+3){--tc:#7a5cc9} .ju .ju-tiles .ju-tile:nth-child(5n+4){--tc:#b7791f} .ju .ju-tiles .ju-tile:nth-child(5n+5){--tc:#b84a78}
+.ju .ju-tile b{display:block;font-size:28px;font-weight:800;letter-spacing:-.025em;line-height:1.15;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ju .ju-tile span{display:block;font-size:14px;font-weight:600;margin-top:4px} .ju .ju-tile small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.ju .ju-tile:hover{transform:translateY(-2px)} .ju .ju-tile:active{transform:scale(.97)} .ju .ju-tile.on{box-shadow:var(--shadow),0 0 0 2px var(--ink)}
+/* rows in a list; press one to open it in place */
+.ju .ju-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 10px;border-radius:var(--r-row);cursor:pointer;transition:background-color .16s}
+.ju .ju-row+.ju-row{box-shadow:0 -1px 0 var(--line)} .ju .ju-row:hover{background:var(--hover);box-shadow:none} .ju .ju-row:hover+.ju-row{box-shadow:none}
+.ju .ju-row .grow{flex:1;min-width:0} .ju .ju-row .grow b{display:block;font-weight:600;font-size:14.5px} .ju .ju-row .grow small{display:block;color:var(--muted);font-size:12.5px}
+.ju .ju-group{display:flex;justify-content:space-between;padding:16px 6px 6px;font-size:11.5px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.ju .ju-chip{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:6px 13px;border-radius:999px;border:0;background:var(--card);color:var(--text);font:inherit;font-size:13px;font-weight:500;cursor:pointer;box-shadow:var(--shadow)}
+.ju .ju-chip.on{background:var(--ink);color:var(--ink-text);box-shadow:none}
+.ju .ju-seg{display:inline-flex;gap:2px;background:var(--hover);border-radius:13px;padding:3px} .ju .ju-seg button{border:0;background:none;color:var(--muted);font:inherit;font-weight:650;padding:8px 14px;border-radius:10px;cursor:pointer} .ju .ju-seg button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+.ju .ju-bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden} .ju .ju-bar i{display:block;height:100%;border-radius:3px;background:var(--ok);transition:width .5s var(--ease)}
+.ju .ju-avatar{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:50%;background:hsl(var(--h,28) 55% 92%);color:hsl(var(--h,28) 55% 30%);font-weight:800;font-size:13px;flex:none}
+.ju.dark .ju-avatar,.dark .ju .ju-avatar{background:hsl(var(--h,28) 30% 22%);color:hsl(var(--h,28) 70% 78%)}
+.ju .ju-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:60;padding:11px 18px;border-radius:999px;background:rgba(24,24,27,.82);color:#fff;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);font-weight:600;font-size:14px;animation:ju-toast .32s var(--spring)}
+/* the dark greeting card on a home page */
+.ju .ju-hero{background:linear-gradient(140deg,#2b2c31,#121214);color:#f5f5f7;border-radius:30px;padding:34px 36px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 24px 60px rgba(20,22,28,.22)}
+.ju.dark .ju-hero,.dark .ju .ju-hero{background:linear-gradient(140deg,rgba(255,255,255,.1),rgba(255,255,255,.03));box-shadow:var(--rim)}
+
+/* ---------- 6. movement (movement only: nothing starts invisible) ---------- */
+@keyframes ju-rise{from{transform:translateY(14px)}to{transform:none}}
+@keyframes ju-pop{from{transform:scale(.93) translateY(12px)}to{transform:none}}
+@keyframes ju-toast{from{transform:translate(-50%,26px)}to{transform:translate(-50%,0)}}
+.ju .ju-enter>*{animation:ju-rise .42s var(--ease) both} .ju .ju-enter>*:nth-child(2){animation-delay:.04s} .ju .ju-enter>*:nth-child(3){animation-delay:.08s} .ju .ju-enter>*:nth-child(4){animation-delay:.12s}
+@media (prefers-reduced-motion:reduce){.ju *,.ju *::before,.ju *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* ---------- 7. phones ---------- */
+@media (max-width:760px){
+  .ju h1{font-size:28px} .ju .ju-card{padding:18px;border-radius:22px} .ju .ju-btn{height:48px} .ju .ju-btn.sm{height:40px}
+  .ju .ju-tiles{grid-template-columns:1fr 1fr;gap:8px} .ju .ju-tile{padding:13px;border-radius:16px} .ju .ju-tile b{font-size:23px}
+  .ju .ju-side{display:none} .ju .ju-hero{padding:24px 22px;border-radius:26px}
+  .ju .ju-overlay{place-items:end center;padding:0} .ju .ju-sheet{max-width:none;border-radius:24px 24px 0 0;padding:22px 18px calc(18px + env(safe-area-inset-bottom));max-height:92dvh;overflow:auto}
+}
+@media (min-width:761px){.ju .ju-tabbar{display:none}}

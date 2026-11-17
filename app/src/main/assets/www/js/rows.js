@@ -43,6 +43,7 @@ export function txRow(t, { swipe = true, showDate = false } = {}) {
     t.sms ? `<span class="tx-repeat" title="From a bank message">${icon('chat-text')}</span>` : '',
     t.photo ? `<span class="tx-repeat" title="Has a photo">${icon('camera')}</span>` : '',
     t.tag ? `<span class="tx-tag">${esc(t.tag)}</span>` : '',
+    t.by && t.by !== store.state.settings.memberName ? `<span class="tx-tag tx-by">${icon('user')} ${esc(t.by)}</span>` : '',
   ].filter(Boolean).join(' ');
   const inner = `
     ${tile(d.iconName, d.color, 'lg')}
@@ -54,7 +55,7 @@ export function txRow(t, { swipe = true, showDate = false } = {}) {
       <div class="tx-amount ${d.kind}">${esc(d.amount)}</div>
     </div>`;
   if (!swipe) return `<button class="row tap tx-row" data-id="${esc(t.id)}">${inner}</button>`;
-  return `<div class="swipe-row" data-id="${esc(t.id)}">
+  return `<div class="swipe-row" data-id="${esc(t.id)}" data-key="${esc(t.id)}">
     <button class="swipe-delete" aria-label="Delete">${icon('trash', true)}<span>Delete</span></button>
     <div class="swipe-content">${inner}</div>
   </div>`;

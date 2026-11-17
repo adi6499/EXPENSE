@@ -92,8 +92,14 @@ export function openGoals() {
     onRight: newGoal,
     render: content => {
       const goals = store.state.goals;
+      const saved = goals.reduce((sum, g) => sum + (L.goalProgress(g).saved || 0), 0);
+      const target = goals.reduce((sum, g) => sum + (g.target || 0), 0);
       content.innerHTML = goals.length
-        ? `<div class="section" style="margin-top:12px"><div class="list">${goals.map(goalRow).join('')}</div>
+        ? `<div class="ju-card page-answer"><div class="ju-eyebrow">Saved so far</div>
+            <div class="big num">${esc(store.money(saved))}</div>
+            <div class="ju-muted">of ${esc(store.money(target))} for ${goals.length} goal${goals.length === 1 ? '' : 's'}</div>
+            ${target ? `<div class="ju-bar" style="margin-top:12px"><i style="width:${Math.min(100, (saved / target) * 100)}%"></i></div>` : ''}</div>
+          <div class="section"><div class="list">${goals.map(goalRow).join('')}</div>
             <div class="section-footer">Tap a goal to add money to it. Expenses works out how much to put aside each month.</div></div>`
         : `<div class="empty" style="padding-top:14vh">${icon('piggy-bank', true)}<strong>Save for something</strong>A trip, a phone, an emergency fund — set an amount and a date and see how much to put aside each month.<div><button class="btn" data-new>${icon('plus')} New Goal</button></div></div>`;
     },
@@ -208,6 +214,24 @@ export function planReminders(now = Date.now()) {
     for (const days of [30, 7]) {
       const at = at9(L.addDays(until, -days));
       if (at > now) list.push({ id: `w|${tx.id}|${days}`, title: `Warranty ends in ${days} days`, text: `${tx.note || 'Your purchase'} — until ${L.shortDate(until)}. Get anything fixed now.`, at });
+    }
+  }
+  // Subscriptions found in your spending: a nudge 3 days before each renews, to cancel what you don't use
+  const today = L.todayISO();
+  for (const x of L.detectSubscriptions(store.state.transactions, today)) {
+    const at = at9(L.addDays(x.nextDate, -3));
+    if (at > now) list.push({ id: `sub|${x.name}|${x.nextDate}`, title: `${x.name} renews in 3 days`, text: `${store.money(x.amount)} on ${L.shortDate(x.nextDate)}. Still using it? Cancel now if not.`, at, open: 'home' });
+  }
+  // The evening note: tonight's says what was spent today; the next few nights just ask
+  const evening = store.state.settings.evening;
+  if (evening && evening.enabled) {
+    const money = v => store.money(v);
+    for (let i = 0; i < 7; i++) {
+      const day = L.parseISO(L.addDays(today, i));
+      const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), evening.hour || 21, 0).getTime();
+      if (at <= now) continue;
+      const note = i === 0 ? L.eveningSummary(store.state, money, today) : { title: 'Anything to add from today?', text: 'Tap to add what you spent — it takes two seconds.' };
+      list.push({ id: `eve|${L.addDays(today, i)}`, title: note.title, text: note.text, at, open: 'home' });
     }
   }
   return list;

@@ -82,6 +82,7 @@ export function createDefaultState() {
     goals: [],        // { id, name, target, byDate, added: [{ amount, date }], createdAt, updatedAt }
     emis: [],         // { id, name, amount, months, day, startDate, accountId, ruleId, paidBefore }
     deleted: {},      // id → time it was deleted (so a deletion also reaches the other device)
+    challenges: [],   // no-spend challenges: { id, name, categoryId, startDate }
     savedAt: 0,
     sms: defaultSms(),
     settings: {
@@ -101,6 +102,14 @@ export function createDefaultState() {
       upiName: '',
       backup: { folder: '', folderName: '', last: 0 },     // Android: a daily backup file in a folder
       sync: { enabled: false, lastPull: 0, lastPush: 0 },   // the same data on phone and computer
+      memberName: '',     // family sharing: who added a transaction
+      evening: { enabled: false, hour: 21 },                // the evening summary notification
+      hideAmounts: false, // privacy: amounts blurred until tapped off
+      quickAdds: [],      // one-tap buttons: { id, note, amount, categoryId, accountId }
+      language: 'en',     // 'en' | 'hi' | 'gu'
+      seenVersion: '',    // the What's new screen was shown for this version
+      quickStart: { hidden: false },                         // the Getting started checklist
+      glassLevel: 100,    // the kit's glass: 0 solid, 30 frosted, 100 clear (default)
     },
   };
 }
@@ -117,6 +126,7 @@ export function normalizeState(raw) {
     recurring: Array.isArray(raw.recurring) ? raw.recurring : [],
     budgets: { ...base.budgets, ...(raw.budgets || {}) },
     goals: Array.isArray(raw.goals) ? raw.goals.filter(g => g && g.id && Number.isFinite(g.target)) : [],
+    challenges: Array.isArray(raw.challenges) ? raw.challenges.filter(c => c && c.id && c.startDate) : [],
     emis: Array.isArray(raw.emis) ? raw.emis.filter(e => e && e.id && Number.isFinite(e.amount)) : [],
     deleted: raw.deleted && typeof raw.deleted === 'object' ? raw.deleted : {},
     savedAt: Number(raw.savedAt) || 0,
@@ -134,7 +144,9 @@ export function normalizeState(raw) {
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
   if (!state.settings.dismissed || typeof state.settings.dismissed !== 'object') state.settings.dismissed = {};
   if (typeof state.settings.activeTag !== 'string') state.settings.activeTag = '';
-  for (const key of ['backup', 'sync']) state.settings[key] = { ...base.settings[key], ...(state.settings[key] && typeof state.settings[key] === 'object' ? state.settings[key] : {}) };
+  if (!Array.isArray(state.settings.quickAdds)) state.settings.quickAdds = [];
+  if (!Number.isFinite(state.settings.glassLevel)) state.settings.glassLevel = 100;
+  for (const key of ['backup', 'sync', 'evening', 'quickStart']) state.settings[key] = { ...base.settings[key], ...(state.settings[key] && typeof state.settings[key] === 'object' ? state.settings[key] : {}) };
   state.settings.email = { ...base.settings.email, ...(state.settings.email && typeof state.settings.email === 'object' ? state.settings.email : {}) };
   state.budgets.categories = state.budgets.categories || {};
   state.transactions = state.transactions
@@ -158,6 +170,10 @@ export function normalizeState(raw) {
       ...(t.business ? { business: true } : {}),
       ...(t.claimed ? { claimed: String(t.claimed) } : {}),
       ...(t.split ? { split: String(t.split) } : {}),
+      ...(Number.isFinite(t.gst) && t.gst > 0 ? { gst: Math.round(t.gst) } : {}),
+      ...(t.gstin ? { gstin: String(t.gstin) } : {}),
+      ...(t.tax ? { tax: String(t.tax) } : {}),
+      ...(t.by ? { by: String(t.by) } : {}),
       ...(t.sms && typeof t.sms === 'object' && t.sms.id ? { sms: {
         id: String(t.sms.id),
         ...(t.sms.ref ? { ref: String(t.sms.ref) } : {}),
@@ -260,7 +276,8 @@ export const store = {
   // ---- Transactions
 
   addTransaction(tx) {
-    const t = { id: L.uid(), createdAt: Date.now(), note: '', ...tx, updatedAt: Date.now() };
+    const by = this.state.settings.sync.enabled && this.state.settings.memberName ? { by: this.state.settings.memberName } : {};
+    const t = { id: L.uid(), createdAt: Date.now(), note: '', ...by, ...tx, updatedAt: Date.now() };
     this.state.transactions.push(t);
     if (t.accountId) this.state.settings.lastAccountId = t.accountId;
     this.commit();
@@ -429,8 +446,15 @@ export const store = {
    * (a payee it has learned, or "Add Without Asking"), skip it (a payee you always ignore),
    * or list it to check. Returns { added: [{ tx, finding }], queued, skipped }.
    */
+  /** An "Investments" account appears the first time a SIP / FD / PPF payment is seen. */
+  ensureInvestAccount() {
+    if (this.state.accounts.some(a => a.id === 'invest' || a.kind === 'investment')) return;
+    this.state.accounts.push({ id: 'invest', name: 'Investments', icon: 'trend-up', color: 'teal', openingBalance: 0, kind: 'investment' });
+  },
+
   takeFindings(findings, newestDate = 0) {
     const sms = this.state.sms;
+    if (findings.some(f => f.transfer === 'invest')) this.ensureInvestAccount();
     const added = [];
     let queued = 0;
     let skipped = 0;
@@ -692,6 +716,33 @@ export const store = {
     this.state.deleted[id] = Date.now();
     this.state.deleted[emi.ruleId] = Date.now();
     this.commit();
+  },
+
+  // ---- No-spend challenges
+
+  startChallenge({ name, categoryId }) {
+    this.state.challenges.push({ id: L.uid(), name, categoryId: categoryId || null, startDate: L.todayISO(), createdAt: Date.now(), updatedAt: Date.now() });
+    this.commit();
+  },
+
+  endChallenge(id) {
+    this.state.challenges = this.state.challenges.filter(c => c.id !== id);
+    this.state.deleted[id] = Date.now();
+    this.commit();
+  },
+
+  // ---- Quick add buttons
+
+  saveQuickAdds(list) {
+    this.state.settings.quickAdds = list.slice(0, 6);
+    this.commit();
+  },
+
+  /** One tap: adds the button's transaction for today. */
+  quickAdd(id) {
+    const q = this.state.settings.quickAdds.find(x => x.id === id);
+    if (!q) return null;
+    return this.addTransaction({ type: 'expense', amount: q.amount, categoryId: q.categoryId, accountId: q.accountId, date: L.todayISO(), note: q.note });
   },
 
   // ---- Business expenses

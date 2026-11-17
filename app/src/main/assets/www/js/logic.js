@@ -1048,7 +1048,7 @@ export function monthCalendar(monthStart, transactions) {
 // ---------- Two devices: merging (phone ↔ computer sync)
 
 // Settings that belong to one device and never travel
-const DEVICE_SETTINGS = ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId'];
+const DEVICE_SETTINGS = ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId', 'email', 'memberName', 'evening', 'hideAmounts', 'language', 'seenVersion', 'quickStart', 'glassLevel'];
 const DEVICE_SMS = ['enabled', 'autoAdd', 'notify', 'lastDate'];
 
 const stamp = r => (r && (r.updatedAt || r.createdAt)) || 0;
@@ -1077,7 +1077,7 @@ export function mergeStates(local, remote) {
   for (const [id, at] of Object.entries(newer.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, at);
   const merged = JSON.parse(JSON.stringify(newer));
   merged.deleted = deleted;
-  for (const key of ['transactions', 'bills', 'goals', 'emis', 'recurring', 'categories', 'accounts']) {
+  for (const key of ['transactions', 'bills', 'goals', 'emis', 'recurring', 'categories', 'accounts', 'challenges']) {
     merged[key] = mergeById(newer[key], older[key], deleted);
   }
   const pendingSeen = new Set(merged.transactions.filter(t => t.sms).map(t => t.sms.id));
@@ -1091,4 +1091,158 @@ export function mergeStates(local, remote) {
   for (const key of DEVICE_SMS) if (local.sms && key in local.sms) merged.sms[key] = local.sms[key];
   merged.savedAt = Math.max(local.savedAt || 0, remote.savedAt || 0);
   return merged;
+}
+
+// ---------- GST on a scanned bill
+
+const GSTIN = /\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/;
+
+/** GST charged on a bill's text: { gst (minor units), gstin } — 0 / '' when none is shown. */
+export function receiptGst(text) {
+  let gst = 0;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (!/\b(?:cgst|sgst|igst|utgst|gst)\b/i.test(line) || /\bgstin\b|\bincl(?:usive|\.)?\b/i.test(line)) continue;
+    const values = line.replace(/\d+(?:\.\d+)?\s*%/g, ' ').match(/\d{1,3}(?:,\d{2,3})*\.\d{1,2}|\d+\.\d{1,2}/g);
+    if (values) gst += Math.round(parseFloat(values[values.length - 1].replace(/,/g, '')) * 100);
+  }
+  const id = String(text || '').toUpperCase().match(GSTIN);
+  return { gst, gstin: id ? id[0] : '' };
+}
+
+// ---------- Net worth
+
+export const isCardAccount = a => !!a && (a.kind === 'card' || a.id === 'card' || /credit|card/i.test(a.name || ''));
+export const isInvestmentAccount = a => !!a && (a.kind === 'investment' || a.id === 'invest');
+
+/**
+ * What you own minus what you owe: cash & bank, investments (their latest value if you set one),
+ * money people owe you; minus card dues, money you owe, EMIs left.
+ */
+export function netWorth({ accounts = [], transactions = [], emis = [], recurring = [] }) {
+  const balances = accountBalances(accounts, transactions);
+  let cash = 0;
+  let invested = 0;
+  let cardDues = 0;
+  for (const a of accounts) {
+    const balance = balances.get(a.id) || 0;
+    if (isInvestmentAccount(a)) invested += Number.isFinite(a.value) ? a.value : balance;
+    else if (isCardAccount(a)) cardDues += Math.max(0, -balance);
+    else cash += balance;
+  }
+  const people = personBalances(transactions);
+  const owedToYou = people.filter(p => p.balance > 0).reduce((s, p) => s + p.balance, 0);
+  const youOwe = people.filter(p => p.balance < 0).reduce((s, p) => s - p.balance, 0);
+  const emiLeft = emis.reduce((sum, e) => sum + emiStatus(e, recurring.find(r => r.id === e.ruleId), transactions).leftAmount, 0);
+  const total = cash + invested + owedToYou - cardDues - youOwe - emiLeft;
+  return { total, cash, invested, owedToYou, cardDues, youOwe, emiLeft };
+}
+
+// ---------- Tax-saving summary (India, financial year April–March)
+
+export const TAX_SECTIONS = [
+  { key: '80C', label: 'Section 80C', note: 'LIC, PPF, ELSS, tuition fees, EPF/VPF, home-loan principal, Sukanya', limit: 15000000,
+    re: /\b(?:lic|life insurance|term (?:plan|insurance)|ppf|public provident|elss|tax ?saver|sukanya|ssy|nsc|tuition|school fees|epf|vpf|ulip|home loan principal)\b/i },
+  { key: '80CCD(1B)', label: 'NPS (80CCD(1B))', note: 'Extra NPS contribution', limit: 5000000, re: /\bnps\b|national pension/i },
+  { key: '80D', label: 'Health insurance (80D)', note: 'Health insurance and check-ups', limit: 2500000,
+    re: /\b(?:health insurance|mediclaim|star health|care health|niva bupa|max bupa|health check|preventive)\b/i },
+  { key: '80E', label: 'Education loan (80E)', note: 'Interest on an education loan', limit: 0, re: /\beducation loan\b/i },
+  { key: '80G', label: 'Donations (80G)', note: 'Donations to approved funds and charities', limit: 0, re: /\b(?:donation|charity|relief fund|pm cares)\b/i },
+  { key: 'HRA', label: 'Rent (HRA / 80GG)', note: 'Rent you paid', limit: 0, re: /\brent\b/i, categoryId: 'rent' },
+];
+
+export function taxYear(today = todayISO()) {
+  const y = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 4 ? 1 : 0);
+  return { start: `${y}-04-01`, end: `${y + 1}-03-31`, label: `FY ${y}–${String(y + 1).slice(2)}` };
+}
+
+/** Which tax section a transaction counts towards ('' when none). t.tax: chosen by hand ('none' = never). */
+export function taxSectionOf(t, categoryName = '') {
+  if (t.tax) return t.tax === 'none' ? '' : t.tax;
+  if (t.type !== 'expense' && t.type !== 'transfer') return '';
+  const text = `${t.note || ''} ${categoryName}`;
+  const hit = TAX_SECTIONS.find(s => (s.categoryId && t.categoryId === s.categoryId) || s.re.test(text));
+  return hit ? hit.key : '';
+}
+
+/** The year's totals per section: [{ ...section, total, items, left }]. */
+export function taxSummary(transactions, categoryName = () => '', today = todayISO()) {
+  const year = taxYear(today);
+  const list = inRange(transactions, year.start, year.end);
+  return TAX_SECTIONS.map(s => {
+    const items = list.filter(t => taxSectionOf(t, categoryName(t.categoryId)) === s.key);
+    const total = items.reduce((sum, t) => sum + t.amount, 0);
+    return { ...s, items, total, left: s.limit ? Math.max(0, s.limit - total) : null };
+  });
+}
+
+// ---------- No-spend challenges
+
+/** A challenge's streak: days in a row with no spending in it (category or all), and the best run. */
+export function streak(challenge, transactions, today = todayISO()) {
+  const days = new Set(transactions
+    .filter(t => t.type === 'expense' && t.date >= challenge.startDate && t.date <= today && (!challenge.categoryId || t.categoryId === challenge.categoryId))
+    .map(t => t.date));
+  let current = 0;
+  for (let d = today; d >= challenge.startDate && !days.has(d); d = addDays(d, -1)) current++;
+  let best = 0;
+  let run = 0;
+  for (let d = challenge.startDate; d <= today; d = addDays(d, 1)) {
+    run = days.has(d) ? 0 : run + 1;
+    best = Math.max(best, run);
+  }
+  return { current, best, spentToday: days.has(today) };
+}
+
+// ---------- Quick add buttons
+
+/** What you add again and again (same name and amount, 3+ times in 60 days): ideas for one-tap buttons. */
+export function frequentSpends(transactions, today = todayISO(), limit = 6) {
+  const since = addDays(today, -60);
+  const groups = new Map();
+  for (const t of transactions) {
+    if (t.type !== 'expense' || t.date < since || !t.note) continue;
+    const key = `${t.note.trim().toLowerCase()}|${t.amount}`;
+    const g = groups.get(key) || { note: t.note.trim(), amount: t.amount, categoryId: t.categoryId, accountId: t.accountId, count: 0 };
+    g.count += 1;
+    groups.set(key, g);
+  }
+  return [...groups.values()].filter(g => g.count >= 3).sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
+// ---------- Evening summary
+
+/** The evening note's words for today. */
+export function eveningSummary(state, money, today = todayISO()) {
+  const spent = totals(state.transactions.filter(t => t.date === today)).expense;
+  const safe = safeToSpend(state, today);
+  if (!spent) return { title: 'No spending recorded today', text: 'Anything to add? Tap to open Expenses.' };
+  const title = `Today: ${money(spent)} spent`;
+  if (!safe) return { title, text: 'Tap to see where it went.' };
+  const diff = safe.perDay - spent;
+  return { title, text: diff >= 0 ? `${money(diff)} under your safe amount for today. Nice!` : `${money(-diff)} over your safe amount for today.` };
+}
+
+// ---------- Family invites
+
+const INVITE_PREFIX = 'EXPENSES-FAMILY-';
+
+/** A code that lets a family member join the same shared data: the Google helper's link and key. */
+export function makeInvite({ url, key, from = '' }) {
+  const json = JSON.stringify({ u: url, k: key, f: from });
+  const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return INVITE_PREFIX + b64;
+}
+
+/** Reads an invite code (also from inside a pasted message). Returns { url, key, from } or null. */
+export function readInvite(text) {
+  const m = String(text || '').match(new RegExp(`${INVITE_PREFIX}([A-Za-z0-9_-]+)`));
+  if (!m) return null;
+  try {
+    const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    const data = JSON.parse(decodeURIComponent(escape(atob(b64 + '==='.slice((b64.length + 3) % 4)))));
+    if (!/^https:\/\/script\.google\.com\//.test(data.u) || !data.k) return null;
+    return { url: data.u, key: data.k, from: data.f || '' };
+  } catch {
+    return null;
+  }
 }

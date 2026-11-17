@@ -449,6 +449,13 @@ class NativeBridge(private val activity: MainActivity) {
         ExpensesWidget.refresh(activity)
     }
 
+    /** The widget's two one-tap quick-add buttons (their labels; tapping one opens expenses://quick0 or quick1). */
+    @JavascriptInterface
+    fun setWidgetQuick(first: String, second: String) {
+        ExpensesWidget.saveQuick(activity, first, second)
+        ExpensesWidget.refresh(activity)
+    }
+
     /** Text shared to Expenses from another app (a bank message), handed over once. */
     @JavascriptInterface
     fun consumeSharedText(): String {

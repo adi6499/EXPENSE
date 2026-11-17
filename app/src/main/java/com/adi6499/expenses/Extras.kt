@@ -19,6 +19,7 @@ import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.util.Base64
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
@@ -81,7 +82,8 @@ object BillReminders {
             )
             val open = PendingIntent.getActivity(
                 context, 3,
-                Intent(Intent.ACTION_VIEW, Uri.parse("expenses://bills"), context, MainActivity::class.java)
+                // "open": where tapping it goes (the evening note opens Summary); bills by default
+                Intent(Intent.ACTION_VIEW, Uri.parse("expenses://" + item.optString("open").ifEmpty { "bills" }), context, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -122,6 +124,12 @@ class ExpensesWidget : AppWidgetProvider() {
                 .apply()
         }
 
+        /** Labels of the first two quick-add buttons ("Chai ₹20"); empty hides a button. */
+        fun saveQuick(context: Context, first: String, second: String) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString("quick0", first).putString("quick1", second).apply()
+        }
+
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
             val ids = manager.getAppWidgetIds(ComponentName(context, ExpensesWidget::class.java))
@@ -151,6 +159,12 @@ class ExpensesWidget : AppWidgetProvider() {
                 setOnClickPendingIntent(R.id.widget_root, link(context, 10, "expenses://home"))
                 setOnClickPendingIntent(R.id.widget_add, link(context, 11, "expenses://add"))
                 setOnClickPendingIntent(R.id.widget_speak, link(context, 12, "expenses://speak"))
+                listOf(R.id.widget_quick0, R.id.widget_quick1).forEachIndexed { i, viewId ->
+                    val label = prefs.getString("quick$i", "") ?: ""
+                    setViewVisibility(viewId, if (label.isEmpty()) View.GONE else View.VISIBLE)
+                    setTextViewText(viewId, label)
+                    setOnClickPendingIntent(viewId, link(context, 13 + i, "expenses://quick$i"))
+                }
             }
         }
     }

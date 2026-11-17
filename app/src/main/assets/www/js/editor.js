@@ -7,7 +7,7 @@ import * as L from './logic.js';
 import * as S from './sms.js';
 import {
   $, $$, esc, icon, tile, openSheet, actionSheet, pickDate, keypadHTML, bindKeypad,
-  segmented, bindSegmented, amountSizeClass, haptic, toast, promptText, alert,
+  segmented, bindSegmented, amountSizeClass, haptic, toast, promptText, alert, pickAmount,
 } from './ui.js';
 import { openCategoryEditor, openAccountEditor } from './manage.js';
 import { openSplit } from './split.js';
@@ -48,6 +48,9 @@ export function openEditor(existing = null, preset = {}) {
     photo: existing ? !!existing.photo : false, // a photo is saved for this transaction
     warranty: (existing && existing.warranty) || '',
     business: existing ? !!existing.business : !!preset.business,
+    gst: (existing && existing.gst) || 0,       // GST on a business bill (paise)
+    gstin: (existing && existing.gstin) || '',
+    tax: (existing && existing.tax) || '',      // tax-saving section chosen by hand ('none' = not for tax)
     categoryTouched: editing || !!preset.categoryId,
   };
   const tagFromTrip = !existing && preset.tag === undefined && !!store.state.settings.activeTag;
@@ -144,22 +147,46 @@ export function openEditor(existing = null, preset = {}) {
     }
   }
 
+  const taxGuess = () => L.taxSectionOf({ type: s.type, note: s.note, categoryId: s.categoryId }, hasCategories(s.type) ? store.category(s.categoryId).name : '');
+  const taxLabel = key => key === 'none' ? 'Not for tax' : ((L.TAX_SECTIONS.find(x => x.key === key) || {}).label || key);
+
+  /** Only the everyday things stay on screen; the rest waits behind More (anything already set shows too). */
   function paintDetails() {
     const account = store.account(s.accountId);
     const showPhoto = s.type !== 'transfer';
     const hasPhoto = !photoRemoved && (photoData || s.photo);
+    const expense = s.type === 'expense';
     $('.detail-row', root).innerHTML = `
-      ${canScan ? `<button class="chip" data-detail="scan">${icon('scan')}Scan Bill</button>` : ''}
-      ${canSpeak ? `<button class="chip" data-detail="speak" aria-label="Speak">${icon('microphone')}Speak</button>` : ''}
+      ${canScan ? `<button class="chip accent" data-detail="scan">${icon('scan')}Scan Bill</button>` : ''}
+      ${canSpeak ? `<button class="chip accent" data-detail="speak" aria-label="Speak">${icon('microphone')}Speak</button>` : ''}
       <button class="chip" data-detail="date">${icon('calendar-blank')}${esc(L.shortDate(s.date))}</button>
       ${s.type !== 'transfer' ? `<button class="chip" data-detail="account">${icon(account ? account.icon : 'wallet')}${esc(account ? account.name : 'No account')}</button>` : ''}
-      <button class="chip ${s.tag ? 'on' : ''}" data-detail="tag">${icon('tag')}${esc(s.tag || 'Tag')}</button>
       ${showPhoto ? `<button class="chip ${hasPhoto ? 'on' : ''}" data-detail="photo">${icon('camera')}${hasPhoto ? 'Photo' : 'Add Photo'}</button>` : ''}
-      ${s.type === 'expense' && !editing ? `<button class="chip" data-detail="split">${icon('users')}Split</button>` : ''}
-      ${s.type === 'expense' ? `<button class="chip ${s.warranty ? 'on' : ''}" data-detail="warranty">${icon('shield-check')}${s.warranty ? `Warranty to ${esc(L.shortDate(s.warranty))}` : 'Warranty'}</button>` : ''}
-      ${s.type === 'expense' ? `<button class="chip ${s.business ? 'on' : ''}" data-detail="business">${icon('briefcase')}Business</button>` : ''}
-      <button class="chip ${s.repeat !== 'never' ? 'on' : ''}" data-detail="repeat">${icon('repeat')}${esc(s.repeat === 'never' ? 'Repeat' : L.FREQUENCY_LABELS[s.repeat])}</button>
+      ${s.tag ? `<button class="chip on" data-detail="tag">${icon('tag')}${esc(s.tag)}</button>` : ''}
+      ${expense && s.business ? `<button class="chip on" data-detail="business">${icon('briefcase')}Business</button>
+        <button class="chip ${s.gst ? 'on' : ''}" data-detail="gst">${icon('percent')}${s.gst ? `GST ${esc(store.money(s.gst))}` : 'Add GST'}</button>` : ''}
+      ${expense && s.warranty ? `<button class="chip on" data-detail="warranty">${icon('shield-check')}Warranty to ${esc(L.shortDate(s.warranty))}</button>` : ''}
+      ${s.repeat !== 'never' ? `<button class="chip on" data-detail="repeat">${icon('repeat')}${esc(L.FREQUENCY_LABELS[s.repeat])}</button>` : ''}
+      ${s.tax ? `<button class="chip on" data-detail="tax">${icon('receipt')}${esc(taxLabel(s.tax))}</button>` : ''}
+      <button class="chip" data-detail="more">${icon('dots-three')}More</button>
       ${editing ? `<button class="chip danger" data-detail="delete" aria-label="Delete">${icon('trash')}Delete</button>` : ''}`;
+  }
+
+  async function more() {
+    const expense = s.type === 'expense';
+    const guess = taxGuess();
+    const choice = await actionSheet({
+      title: 'More',
+      actions: [
+        ...(expense && !editing ? [{ text: 'Split the Bill', value: 'split', icon: 'users' }] : []),
+        { text: s.tag ? `Trip or Event: ${s.tag}` : 'Trip or Event', value: 'tag', icon: 'tag', checked: !!s.tag },
+        ...(expense ? [{ text: 'Business Expense (GST)', value: 'business', icon: 'briefcase', checked: s.business }] : []),
+        ...(expense ? [{ text: 'Warranty', value: 'warranty', icon: 'shield-check', checked: !!s.warranty }] : []),
+        { text: 'Repeat', value: 'repeat', icon: 'repeat', checked: s.repeat !== 'never' },
+        ...(expense || s.type === 'transfer' ? [{ text: s.tax || guess ? `Tax Saving: ${taxLabel(s.tax || guess)}` : 'Tax Saving', value: 'tax', icon: 'receipt', checked: !!(s.tax && s.tax !== 'none') || (!s.tax && !!guess) }] : []),
+      ],
+    });
+    if (choice) detail(choice);
   }
 
   function paintSuggestions() {
@@ -235,6 +262,9 @@ export function openEditor(existing = null, preset = {}) {
       tag: (tagFromTrip && !hasCategories(s.type) && s.tag === store.state.settings.activeTag) ? undefined : s.tag || undefined,
       warranty: s.type === 'expense' && s.warranty ? s.warranty : undefined,
       business: s.type === 'expense' && s.business ? true : undefined,
+      gst: s.type === 'expense' && s.business && s.gst ? s.gst : undefined,
+      gstin: s.type === 'expense' && s.business && s.gst && s.gstin ? s.gstin : undefined,
+      tax: (s.type === 'expense' || s.type === 'transfer') && s.tax ? s.tax : undefined,
     };
     let tx;
     if (editing) {
@@ -316,6 +346,8 @@ export function openEditor(existing = null, preset = {}) {
       return;
     }
     const r = L.parseReceipt(scanned.text || '');
+    const g = L.receiptGst(scanned.text || '');
+    if (g.gst) { s.gst = g.gst; s.gstin = g.gstin; }
     if (scanned.dataUrl) { photoData = scanned.dataUrl; photoRemoved = false; }
     if (r.amount) s.typed = L.minorToTyped(r.amount);
     if (r.merchant && !s.note.trim()) s.note = r.merchant;
@@ -327,7 +359,7 @@ export function openEditor(existing = null, preset = {}) {
     $$('button', seg).forEach((b, i) => { const on = b.dataset.value === s.type; b.classList.toggle('on', on); if (on) seg.style.setProperty('--i', i); });
     repaintAll();
     haptic(r.amount ? 'success' : 'warning');
-    toast(r.amount ? `Read ${store.money(r.amount)}${r.merchant ? ` · ${r.merchant}` : ''} — check it, then Add`
+    toast(r.amount ? `Read ${store.money(r.amount)}${r.merchant ? ` · ${r.merchant}` : ''}${g.gst ? ` · GST ${store.money(g.gst)}` : ''} — check it, then Add`
       : scanned.readerMissing ? 'The bill reader is still downloading (once, through Google Play services) — try again in a minute. The photo is attached.'
       : 'Couldn’t find the total — type it in. The photo is attached.', { iconName: 'scan', duration: 6000 });
   }
@@ -471,11 +503,29 @@ export function openEditor(existing = null, preset = {}) {
     noteEl.blur();
   });
 
-  $('.detail-row', root).addEventListener('click', async e => {
+  $('.detail-row', root).addEventListener('click', e => {
     const chip = e.target.closest('[data-detail]');
-    if (!chip) return;
-    const kind = chip.dataset.detail;
-    if (kind === 'speak') {
+    if (chip) detail(chip.dataset.detail);
+  });
+
+  async function detail(kind) {
+    if (kind === 'more') {
+      more();
+    } else if (kind === 'gst') {
+      const value = await pickAmount({ title: 'GST on This Bill', subtitle: 'CGST + SGST, or IGST — shown in your business report', initial: s.gst, currency: store.currency });
+      if (value !== null) { s.gst = value; paintDetails(); }
+    } else if (kind === 'tax') {
+      const guess = taxGuess();
+      const choice = await actionSheet({
+        title: 'Tax Saving',
+        message: guess ? `Counted under ${taxLabel(guess)} by its name. Pick another, or “Not for Tax”.` : 'Does this lower your income tax (old regime)? Pick where it counts.',
+        actions: [
+          ...L.TAX_SECTIONS.map(x => ({ text: x.label, value: x.key, checked: (s.tax || guess) === x.key })),
+          { text: 'Not for Tax', value: 'none', checked: s.tax === 'none' },
+        ],
+      });
+      if (choice) { s.tax = choice === guess ? '' : choice; paintDetails(); }
+    } else if (kind === 'speak') {
       speak();
     } else if (kind === 'date') {
       const picked = await pickDate(s.date, { title: 'Date' });
@@ -548,7 +598,7 @@ export function openEditor(existing = null, preset = {}) {
       s.business = !s.business;
       haptic('selection');
       paintDetails();
-      if (s.business) toast('Marked as business — find it in Insights → Business Expenses', { iconName: 'briefcase' });
+      if (s.business) toast(s.gst ? `Business expense · GST ${store.money(s.gst)}` : 'Business expense — tap “Add GST” if the bill has GST', { iconName: 'briefcase' });
     } else if (kind === 'photo') {
       photoMenu();
     } else if (kind === 'repeat') {
@@ -570,7 +620,7 @@ export function openEditor(existing = null, preset = {}) {
         if (removed) toast('Transaction deleted', { actionText: 'Undo', duration: 6000, onAction: () => store.restoreTransaction(removed) });
       }
     }
-  });
+  }
 
   repaintAll();
   if (preset.speak && canSpeak) setTimeout(speak, 350);

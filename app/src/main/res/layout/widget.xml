@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home-screen widget: today's and this month's spending, with Speak and Add buttons -->
+<!-- Home-screen widget: today's and this month's spending, one-tap quick adds, Speak and Add buttons -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -48,8 +48,45 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:gravity="bottom|end"
+        android:gravity="bottom"
         android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_quick0"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_chip"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:maxWidth="120dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="@color/widget_primary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_quick1"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_chip"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:maxWidth="120dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="@color/widget_primary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <ImageView
             android:id="@+id/widget_speak"

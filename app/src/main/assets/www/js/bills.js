@@ -121,9 +121,17 @@ export function openBills() {
       const unpaid = unpaidBills();
       const paid = store.state.bills.filter(b => b.paid).sort((a, b) => (a.dueDate < b.dueDate ? 1 : -1));
       const remind = store.state.settings.billReminders !== false;
+      const total = unpaid.reduce((sum, b) => sum + b.amount, 0);
+      const next = unpaid[0];
       content.innerHTML = `
-        ${unpaid.length ? `<div class="section" style="margin-top:12px"><div class="section-header">To Pay</div><div class="list">${unpaid.map(billRow).join('')}</div></div>`
-          : `<div class="empty" style="padding-top:12vh">${icon('receipt', true)}<strong>No bills due</strong>Card statements, phone and power bills from your bank messages show up here. Tap + to add one yourself.</div>`}
+        ${unpaid.length ? `<div class="ju-card page-answer">
+            <div class="ju-eyebrow">To pay</div>
+            <div class="big num">${esc(store.money(total))}</div>
+            <div class="ju-muted">${unpaid.length} bill${unpaid.length === 1 ? '' : 's'} · next ${esc(next.name)}, ${esc(L.shortDate(next.dueDate))}</div>
+          </div>
+          <div class="section"><div class="section-header">To Pay</div><div class="list">${unpaid.map(billRow).join('')}</div></div>`
+          : `<div class="empty" style="padding-top:8vh">${icon('receipt', true)}<strong>No bills due</strong>Card statements, phone and power bills from your bank messages show up here.
+              <div><button class="btn" data-bill-add>${icon('plus')} Add a Bill</button></div></div>`}
         ${native.isApp ? `
         <div class="section">
           <div class="list">
@@ -135,7 +143,10 @@ export function openBills() {
         ${paid.length ? `<div class="section"><div class="section-header">Paid</div><div class="list">${paid.slice(0, 20).map(billRow).join('')}</div></div>` : ''}`;
     },
   });
-  page.content.addEventListener('click', e => handleBillClick(e));
+  page.content.addEventListener('click', e => {
+    if (e.target.closest('[data-bill-add]')) { addBill(); return; }
+    handleBillClick(e);
+  });
   page.content.addEventListener('change', async e => {
     const input = e.target.closest('[data-remind]');
     if (!input) return;
@@ -173,5 +184,8 @@ export function syncBillReminders() {
     }
   }
   if (store.state.settings.billReminders !== false) list.push(...planReminders());
+  else if (store.state.settings.evening && store.state.settings.evening.enabled) list.push(...planReminders().filter(r => r.id.startsWith('eve|')));
+  // The soonest first, so the evening notes always fit in
+  list.sort((a, b) => a.at - b.at);
   native.setBillReminders(list.slice(0, 60));
 }

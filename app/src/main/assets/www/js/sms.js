@@ -478,7 +478,9 @@ export function toTransaction(finding, state) {
   if (finding.transfer) {
     // ATM cash or a card bill: money moves from the bank to cash / the card, nothing is spent
     const from = (state.sms && state.sms.accounts && state.sms.accounts[`${finding.bank}|${finding.last4}`]) || findAccountFor(state, 'bank', /bank/i);
-    const to = finding.transfer === 'cash' ? findAccountFor(state, 'cash', /cash/i) : findAccountFor(state, 'card', /credit|card/i);
+    const to = finding.transfer === 'cash' ? findAccountFor(state, 'cash', /cash/i)
+      : finding.transfer === 'invest' ? (findAccountFor(state, 'invest', /invest/i) || 'invest')
+      : findAccountFor(state, 'card', /credit|card/i);
     if (from && to && from !== to) {
       return {
         type: 'transfer', amount: finding.amount, categoryId: null, accountId: from, toAccountId: to,
@@ -545,8 +547,12 @@ export function transferKind(finding) {
   if (!finding || finding.type !== 'expense') return '';
   if (finding.kind === 'atm') return 'cash';
   if (CARD_BILL_PAYMENT.test(finding.body || '') && !/\bspent\b|\bwas used\b|\busing your\b/i.test(finding.body || '')) return 'card';
+  // Saving or investing (SIP, mutual funds, PPF, RD, FD, NPS, stocks) moves money; it isn't spending
+  if (INVESTING.test(`${finding.merchant || ''} ${finding.body || ''}`)) return 'invest';
   return '';
 }
+
+const INVESTING = /\b(?:sip|mutual funds?|systematic investment|ppf|public provident|recurring deposit|rd instal\w*|fixed deposit|fd (?:booked|created|opened)|nps|national pension|zerodha|groww|upstox|kuvera|paytm money|angel one|demat|elss|sukanya|indian clearing corp|bse star|camsonline|kfintech)\b/i;
 
 function findAccountFor(state, id, re) {
   const accounts = state.accounts || [];

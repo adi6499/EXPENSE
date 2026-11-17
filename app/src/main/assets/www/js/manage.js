@@ -1,4 +1,5 @@
 // Settings sub-pages: categories, accounts, budgets, repeating transactions, currency, appearance.
+import { refresh as refreshMagnifier } from './magnify.js';
 import { store, COLORS, CATEGORY_ICONS, ACCOUNT_ICONS } from './store.js';
 import * as L from './logic.js';
 import {
@@ -105,7 +106,7 @@ export function openCategories() {
                 <div class="row-main"><span class="row-title" style="flex:1">${esc(c.name)}</span>
                 <span class="row-value">${count || ''}</span>${icon('caret-right')}</div></button>`;
             }).join('')}
-            <button class="row tap" data-add>${tile('plus', 'blue')}<div class="row-main"><span class="row-title" style="color:var(--blue)">Add Category</span></div></button>
+            <button class="row tap" data-add>${tile('plus', 'blue')}<div class="row-main"><span class="row-title row-action">Add Category</span></div></button>
           </div>
           <div class="section-footer">The number shows how many transactions use each category. Deleting a category moves its transactions to "Other".</div>
         </div>`;
@@ -234,7 +235,7 @@ export function openAccounts() {
                 <span class="row-value" style="color:${balances.get(a.id) < 0 ? 'var(--red)' : 'var(--label-2)'}">${esc(store.money(balances.get(a.id) || 0))}</span>${icon('caret-right')}</div>
               </button>`;
             }).join('')}
-            <button class="row tap" data-add>${tile('plus', 'blue')}<div class="row-main"><span class="row-title" style="color:var(--blue)">Add Account</span></div></button>
+            <button class="row tap" data-add>${tile('plus', 'blue')}<div class="row-main"><span class="row-title row-action">Add Account</span></div></button>
           </div>
           <div class="section-footer">Accounts are where money is paid from — cash, UPI, a bank account or a card.</div>
         </div>`;
@@ -439,20 +440,45 @@ export function openAppearance(onChange) {
       store.setSetting('appearance', value);
       onChange();
     },
-    after: () => `
+    after: () => {
+      const n = store.state.settings.glassLevel;
+      return `
       <div class="section">
-        <div class="list">
-          <label class="row">${tile('drop', 'cyan')}<div class="row-main"><span class="row-title" style="flex:1">Liquid Glass</span>
-          <span class="switch"><input type="checkbox" data-glass ${store.state.settings.glass !== false ? 'checked' : ''}><span></span></span></div></label>
-        </div>
-        <div class="section-footer">See-through glass for the tab bar, buttons and pop-ups. Turn it off for a plain look (and a little less work for older phones).</div>
-      </div>`,
+        <div class="section-header">Glass</div>
+        <div class="list"><div class="glass-control">
+          <input type="range" min="0" max="100" step="1" value="${n}" data-glass aria-label="Glass level">
+          <span class="ju-seg" data-glass-presets>${[[0, 'Solid'], [30, 'Frosted'], [100, 'Clear']].map(([v, t]) => `<button data-v="${v}" class="${glassName(n) === t ? 'on' : ''}">${t}</button>`).join('')}</span>
+        </div></div>
+        <div class="section-footer">The bars at the top and bottom, the side menu and pop-ups are glass. Clear shows the page through them; Frosted is milky; Solid is plain.</div>
+      </div>`;
+    },
   });
+  const show = n => {
+    const range = page.content.querySelector('[data-glass]');
+    if (range) range.value = n;
+    page.content.querySelectorAll('[data-glass-presets] button').forEach(b => b.classList.toggle('on', glassName(n) === b.textContent));
+  };
+  const set = n => {
+    n = Math.max(0, Math.min(100, Math.round(Number(n)) || 0));
+    try { if (window.JUI) window.JUI.setGlass(n); } catch { /* the look is cosmetic */ }
+    refreshMagnifier();
+    show(n);
+    return n;
+  };
+  page.content.addEventListener('input', e => { if (e.target.closest('[data-glass]')) set(e.target.value); });
   page.content.addEventListener('change', e => {
     if (!e.target.closest('[data-glass]')) return;
+    store.state.settings.glassLevel = set(e.target.value);
+    store.saveKeepingTime();
+  });
+  page.content.addEventListener('click', e => {
+    const b = e.target.closest('[data-glass-presets] button');
+    if (!b) return;
     haptic('selection');
-    store.setSetting('glass', e.target.checked);
-    onChange();
+    store.state.settings.glassLevel = set(b.dataset.v);
+    store.saveKeepingTime();
   });
 }
+
+const glassName = n => (n < 5 ? 'Solid' : n < 55 ? 'Frosted' : 'Clear');
 
