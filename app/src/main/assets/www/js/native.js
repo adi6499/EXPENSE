@@ -305,6 +305,86 @@ export const native = {
   updateWidget(today, month, line, zero) {
     if (bridge && bridge.updateWidget) { try { bridge.updateWidget(today, month, line, zero); } catch { /* older app */ } }
   },
+
+  // ---- Scanning a bill (Android: the phone reads the text on the photo)
+
+  canScan() {
+    return !!(bridge && bridge.scanBill);
+  },
+
+  /** Takes or picks a photo of a bill. Resolves { ok, text, dataUrl }. */
+  scanBill() {
+    if (bridge && bridge.scanBill) return request('scanBill');
+    return Promise.resolve({ ok: false, error: 'Scanning bills works in the Android app' });
+  },
+
+  /** A photo as a data URL (for reports), or ''. */
+  async photoDataUrl(id) {
+    try {
+      let blob;
+      if (bridge && bridge.savePhoto) blob = await (await fetch(await this.photoUrl(id))).blob();
+      else blob = await photoStore('readonly', s => s.get(id));
+      if (!blob) return '';
+      return await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return '';
+    }
+  },
+
+  /** Shares a picture with a message (WhatsApp shows both). Resolves { ok, cancelled? }. */
+  async sendImageWithText(fileName, dataUrl, text) {
+    if (bridge && bridge.shareImageText) return request('shareImageText', fileName, dataUrl.split(',')[1], text);
+    const file = new File([dataUrlToBlob(dataUrl)], fileName, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], text }); return { ok: true }; } catch (err) {
+        if (err && err.name === 'AbortError') return { ok: false, cancelled: true };
+      }
+    }
+    // A computer: save the picture and open WhatsApp with the message
+    await this.sendImage('save', fileName, dataUrl);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    return { ok: true };
+  },
+
+  /** Prints a page, which can be saved as a PDF. Resolves { ok }. */
+  printHtml(html, title) {
+    if (bridge && bridge.printHtml) return request('printHtml', html, title);
+    return new Promise(resolve => {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0';
+      frame.srcdoc = html;
+      frame.onload = () => {
+        setTimeout(() => {
+          try { frame.contentWindow.print(); resolve({ ok: true }); } catch { resolve({ ok: false, error: 'This browser can’t print' }); }
+          setTimeout(() => frame.remove(), 60000);
+        }, 300);
+      };
+      document.body.appendChild(frame);
+    });
+  },
+
+  // ---- Daily backup to a folder (Android)
+
+  canBackupToFolder() {
+    return !!(bridge && bridge.pickBackupFolder);
+  },
+
+  /** Lets the person choose a folder for daily backups. Resolves { ok, name }. */
+  pickBackupFolder() {
+    if (bridge && bridge.pickBackupFolder) return request('pickBackupFolder');
+    return Promise.resolve({ ok: false });
+  },
+
+  /** Writes today's backup file there (keeps the last 7). Resolves { ok, error? }. */
+  writeBackup(fileName, text) {
+    if (bridge && bridge.writeBackup) return request('writeBackup', fileName, text);
+    return Promise.resolve({ ok: false });
+  },
 };
 
 /** Makes a photo small enough to keep: longest side 1600 px, JPEG. */

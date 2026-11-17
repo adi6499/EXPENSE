@@ -9,6 +9,9 @@ import {
   openPaste, openLearned, openIphoneSetup,
 } from './messages.js';
 import { openEmailSetup, emailStatusText } from './email.js';
+import { openBackupSync, backupStatusText } from './sync.js';
+import { isUpiId } from './qr.js';
+import { ensureUpiId } from './split.js';
 
 const APPEARANCE_LABELS = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 
@@ -80,8 +83,16 @@ ${showInstall ? `
 
 ${messagesSection(st.sms)}
       <div class="section">
+        <div class="section-header">Payments</div>
+        <div class="list">
+          ${row({ id: 'upi', iconName: 'qr-code', color: 'purple', title: 'Your UPI ID', value: isUpiId(s.upiId) ? s.upiId : 'Add' })}
+        </div>
+        <div class="section-footer">Used when you split a bill or ask someone to pay you back: they get a picture with a UPI code for the exact amount.</div>
+      </div>
+      <div class="section">
         <div class="section-header">Your data</div>
         <div class="list">
+          ${row({ id: 'backup-sync', iconName: 'arrows-clockwise', color: 'teal', title: 'Backup & Sync', value: backupStatusText() })}
           ${row({ id: 'export', iconName: 'file-csv', color: 'green', title: 'Export to Excel (CSV)' })}
           ${row({ id: 'backup', iconName: 'upload-simple', color: 'blue', title: 'Back Up' })}
           ${row({ id: 'restore', iconName: 'download-simple', color: 'teal', title: 'Restore from Backup' })}
@@ -158,6 +169,11 @@ ${messagesSection(st.sms)}
       'sms-check': () => checkMessages({ quiet: false }),
       'sms-review': openReview,
       'sms-paste': openPaste,
+      'backup-sync': openBackupSync,
+      upi: async () => {
+        if (isUpiId(store.state.settings.upiId)) store.setSetting('upiId', '');
+        await ensureUpiId();
+      },
       'sms-email': openEmailSetup,
       'sms-learned': openLearned,
       'sms-iphone': openIphoneSetup,

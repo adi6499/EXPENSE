@@ -8,6 +8,9 @@ import { openTrips } from './trips.js';
 import { openPeople } from './people.js';
 import { openBills } from './bills.js';
 import { openMonthPicture } from './summary.js';
+import { openGoals, openEmis, openWarranties } from './plans.js';
+import { openCalendar } from './calendar.js';
+import { openClaims } from './claims.js';
 
 const FREQUENCY_SHORT = { weekly: 'Every week', monthly: 'Every month', yearly: 'Every year' };
 
@@ -161,6 +164,11 @@ export function createInsights(root, { openEditor, showActivity }) {
         <div class="list">
           <button class="row tap" data-open="trips">${tile('airplane-tilt', 'cyan')}<div class="row-main"><span class="row-title" style="flex:1">Trips &amp; Events</span>${tags ? `<span class="row-value">${tags}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
           <button class="row tap" data-open="people">${tile('hand-coins', 'teal')}<div class="row-main"><span class="row-title" style="flex:1">Lent &amp; Borrowed</span>${people ? `<span class="row-value">${people}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="calendar">${tile('calendar-dots', 'red')}<div class="row-main"><span class="row-title" style="flex:1">Calendar</span><i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="goals">${tile('piggy-bank', 'pink')}<div class="row-main"><span class="row-title" style="flex:1">Goals</span>${store.state.goals.length ? `<span class="row-value">${store.state.goals.length}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="emis">${tile('bank', 'indigo')}<div class="row-main"><span class="row-title" style="flex:1">Loans &amp; EMIs</span>${store.state.emis.length ? `<span class="row-value">${store.state.emis.length}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="warranties">${tile('shield-check', 'green')}<div class="row-main"><span class="row-title" style="flex:1">Warranties</span><i class="ph ph-caret-right row-chevron"></i></div></button>
+          <button class="row tap" data-open="claims">${tile('briefcase', 'brown')}<div class="row-main"><span class="row-title" style="flex:1">Business Expenses</span><i class="ph ph-caret-right row-chevron"></i></div></button>
           <button class="row tap" data-open="bills">${tile('receipt', 'orange')}<div class="row-main"><span class="row-title" style="flex:1">Bills</span>${bills ? `<span class="row-value">${bills}</span>` : ''}<i class="ph ph-caret-right row-chevron"></i></div></button>
         </div>
       </div>`;
@@ -177,7 +185,7 @@ export function createInsights(root, { openEditor, showActivity }) {
   root.addEventListener('click', e => {
     const open = e.target.closest('[data-open]');
     if (open) {
-      ({ trips: openTrips, people: openPeople, bills: openBills })[open.dataset.open]();
+      ({ trips: openTrips, people: openPeople, bills: openBills, calendar: openCalendar, goals: openGoals, emis: openEmis, warranties: openWarranties, claims: openClaims })[open.dataset.open]();
       return;
     }
     const picture = e.target.closest('[data-picture]');

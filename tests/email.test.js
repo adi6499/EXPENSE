@@ -30,11 +30,47 @@ function runScript(key, mail) {
       createTextOutput: text => ({ setMimeType: () => ({ getContent: () => text }) }),
     },
     Logger: { log: () => {} },
-    Math, JSON, Number, Buffer,
+    Math, JSON, Number, Buffer, String, encodeURIComponent,
+    // A pretend Google Drive and script settings for sync & backup
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
+    ScriptApp: { getOAuthToken: () => 'token' },
+    Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
+    UrlFetchApp: { fetch: (url, options) => fakeDrive(url, options) },
   };
+  sandbox.Utilities.formatDate = () => day.value;
+  const props = {};
+  const files = {};
+  const day = { value: '2026-11-12' };
+  let next = 1;
+  const res = (code, text) => ({ getResponseCode: () => code, getContentText: () => text });
+  function fakeDrive(url, options) {
+    assert.equal(options.headers.Authorization, 'Bearer token');
+    const method = options.method;
+    if (method === 'post' && url.endsWith('/drive/v3/files')) {
+      const id = 'f' + next++;
+      files[id] = { name: JSON.parse(options.payload).name, content: '', trashed: false };
+      return res(200, JSON.stringify({ id }));
+    }
+    let m = url.match(/upload\/drive\/v3\/files\/([^?]+)\?uploadType=media/);
+    if (m) { if (!files[m[1]]) return res(404, ''); files[m[1]].content = options.payload; return res(200, '{}'); }
+    m = url.match(/drive\/v3\/files\/([^?]+)\?alt=media/);
+    if (m) { const file = files[decodeURIComponent(m[1])]; return file ? res(200, file.content) : res(404, ''); }
+    if (url.includes('/drive/v3/files?q=')) {
+      const list = Object.entries(files).filter(([, x]) => !x.trashed && x.name.startsWith('Expenses backup ')).map(([id, x]) => ({ id, name: x.name }))
+        .sort((p, q) => (p.name < q.name ? 1 : -1));
+      return res(200, JSON.stringify({ files: list }));
+    }
+    m = url.match(/drive\/v3\/files\/([^?]+)$/);
+    if (m && method === 'patch') { files[m[1]].trashed = JSON.parse(options.payload).trashed; return res(200, '{}'); }
+    throw new Error('unexpected Drive call ' + method + ' ' + url);
+  }
   vm.createContext(sandbox);
   vm.runInContext(scriptWithKey(key), sandbox);
-  return { call: params => JSON.parse(sandbox.doGet({ parameter: params }).getContent()), listed };
+  return {
+    call: params => JSON.parse(sandbox.doGet({ parameter: params }).getContent()),
+    post: body => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent()),
+    listed, files, day,
+  };
 }
 
 const MAIL = [
@@ -68,9 +104,13 @@ test('the Google script returns new bank emails, oldest first, as text', () => {
   assert.equal(Number(longAgo.listed[0].match(/after:(\d+)/)[1]), Math.floor((NOW - 31 * 86400000) / 1000));
 });
 
-test('the script settings ask for read-only Gmail', () => {
+test('the script settings ask only for read-only Gmail and its own Drive files', () => {
   const manifest = JSON.parse(MANIFEST);
-  assert.deepEqual(manifest.oauthScopes, ['https://www.googleapis.com/auth/gmail.readonly']);
+  assert.deepEqual(manifest.oauthScopes, [
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/script.external_request',
+  ]);
   assert.equal(manifest.webapp.access, 'ANYONE_ANONYMOUS');
   assert.equal(manifest.dependencies.enabledAdvancedServices[0].serviceId, 'gmail');
 });
@@ -110,4 +150,27 @@ test('the same payment from an SMS and an email counts once', () => {
   assert.equal(S.alreadyHave({ ...fromMail, amount: 50100 }, state), false);
   // Two SMS of the same amount on the same day are two payments
   assert.equal(S.alreadyHave({ ...sms, id: '8', via: undefined }, state), false);
+});
+
+test('the Google script keeps the data in Drive with one dated backup a day', () => {
+  const s = runScript('k123', []);
+  assert.deepEqual(s.call({ key: 'k123', action: 'hello' }), { ok: true, version: 2 });
+  assert.deepEqual(s.call({ key: 'k123', action: 'pull' }), { ok: true, version: 2, data: null, savedAt: 0 });
+  assert.deepEqual(s.post({ key: 'nope', action: 'push', data: '{}' }), { ok: false, error: 'wrong-key' });
+  assert.equal(s.post({ key: 'k123', action: 'push', data: '{"a":1}', savedAt: 111 }).ok, true);
+  assert.deepEqual(s.call({ key: 'k123', action: 'pull' }), { ok: true, version: 2, data: '{"a":1}', savedAt: 111 });
+  s.post({ key: 'k123', action: 'push', data: '{"a":2}', savedAt: 222 });
+  let backups = s.call({ key: 'k123', action: 'list' }).backups;
+  assert.deepEqual(backups.map(b => b.name), ['Expenses backup 2026-11-12.json']); // one a day
+  assert.equal(s.call({ key: 'k123', action: 'get', id: backups[0].id }).data, '{"a":1}');
+  assert.equal(s.call({ key: 'k123', action: 'pull' }).data, '{"a":2}');
+  // Fifteen days later only the newest 14 backups are kept
+  for (let d = 13; d <= 27; d++) { s.day.value = '2026-11-' + d; s.post({ key: 'k123', action: 'push', data: '{"d":' + d + '}', savedAt: 300 + d }); }
+  backups = s.call({ key: 'k123', action: 'list' }).backups;
+  assert.equal(backups.length, 14);
+  assert.equal(backups[0].name, 'Expenses backup 2026-11-27.json');
+  // If the data file was deleted from Drive, a new one is made
+  delete s.files.f1;
+  assert.equal(s.post({ key: 'k123', action: 'push', data: '{"back":1}', savedAt: 999 }).ok, true);
+  assert.equal(s.call({ key: 'k123', action: 'pull' }).data, '{"back":1}');
 });

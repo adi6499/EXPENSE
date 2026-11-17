@@ -79,6 +79,10 @@ export function createDefaultState() {
     recurring: [],
     budgets: { monthly: 0, categories: {} },
     bills: [],        // { id, name, amount, minDue, dueDate, paid, autopay, key, source }
+    goals: [],        // { id, name, target, byDate, added: [{ amount, date }], createdAt, updatedAt }
+    emis: [],         // { id, name, amount, months, day, startDate, accountId, ruleId, paidBefore }
+    deleted: {},      // id → time it was deleted (so a deletion also reaches the other device)
+    savedAt: 0,
     sms: defaultSms(),
     settings: {
       currency: 'INR',
@@ -93,6 +97,10 @@ export function createDefaultState() {
       summarySeen: '',    // 'YYYY-MM' whose monthly picture was already shown
       // Bank emails: the person's own Google script (see email.js)
       email: { url: '', key: '', enabled: false, lastDate: 0, lastCheck: 0 },
+      upiId: '',          // for "scan to pay me" when splitting a bill
+      upiName: '',
+      backup: { folder: '', folderName: '', last: 0 },     // Android: a daily backup file in a folder
+      sync: { enabled: false, lastPull: 0, lastPush: 0 },   // the same data on phone and computer
     },
   };
 }
@@ -108,6 +116,10 @@ export function normalizeState(raw) {
     accounts: Array.isArray(raw.accounts) ? raw.accounts : base.accounts,
     recurring: Array.isArray(raw.recurring) ? raw.recurring : [],
     budgets: { ...base.budgets, ...(raw.budgets || {}) },
+    goals: Array.isArray(raw.goals) ? raw.goals.filter(g => g && g.id && Number.isFinite(g.target)) : [],
+    emis: Array.isArray(raw.emis) ? raw.emis.filter(e => e && e.id && Number.isFinite(e.amount)) : [],
+    deleted: raw.deleted && typeof raw.deleted === 'object' ? raw.deleted : {},
+    savedAt: Number(raw.savedAt) || 0,
     bills: Array.isArray(raw.bills) ? raw.bills.filter(b => b && b.id && Number.isFinite(b.amount) && /^\d{4}-\d{2}-\d{2}$/.test(b.dueDate || '')) : [],
     sms: { ...base.sms, ...(raw.sms && typeof raw.sms === 'object' ? raw.sms : {}) },
     settings: { ...base.settings, ...(raw.settings || {}) },
@@ -122,6 +134,7 @@ export function normalizeState(raw) {
   state.settings.reminder = { ...base.settings.reminder, ...(state.settings.reminder || {}) };
   if (!state.settings.dismissed || typeof state.settings.dismissed !== 'object') state.settings.dismissed = {};
   if (typeof state.settings.activeTag !== 'string') state.settings.activeTag = '';
+  for (const key of ['backup', 'sync']) state.settings[key] = { ...base.settings[key], ...(state.settings[key] && typeof state.settings[key] === 'object' ? state.settings[key] : {}) };
   state.settings.email = { ...base.settings.email, ...(state.settings.email && typeof state.settings.email === 'object' ? state.settings.email : {}) };
   state.budgets.categories = state.budgets.categories || {};
   state.transactions = state.transactions
@@ -140,6 +153,11 @@ export function normalizeState(raw) {
       ...(t.type === 'loan' ? { person: String(t.person || 'Someone'), direction: t.direction === 'in' ? 'in' : 'out' } : {}),
       ...(t.tag ? { tag: String(t.tag) } : {}),
       ...(t.photo ? { photo: true } : {}),
+      ...(t.updatedAt ? { updatedAt: Number(t.updatedAt) } : {}),
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(t.warranty || '') ? { warranty: t.warranty } : {}),
+      ...(t.business ? { business: true } : {}),
+      ...(t.claimed ? { claimed: String(t.claimed) } : {}),
+      ...(t.split ? { split: String(t.split) } : {}),
       ...(t.sms && typeof t.sms === 'object' && t.sms.id ? { sms: {
         id: String(t.sms.id),
         ...(t.sms.ref ? { ref: String(t.sms.ref) } : {}),
@@ -177,6 +195,14 @@ export const store = {
   },
 
   save() {
+    this.state.savedAt = Date.now();
+    const ok = native.save(JSON.stringify(this.state));
+    this.saveFailed = !ok;
+    return ok;
+  },
+
+  /** Saves without counting as a change (sync bookkeeping, backup times). */
+  saveKeepingTime() {
     const ok = native.save(JSON.stringify(this.state));
     this.saveFailed = !ok;
     return ok;
@@ -234,7 +260,7 @@ export const store = {
   // ---- Transactions
 
   addTransaction(tx) {
-    const t = { id: L.uid(), createdAt: Date.now(), note: '', ...tx };
+    const t = { id: L.uid(), createdAt: Date.now(), note: '', ...tx, updatedAt: Date.now() };
     this.state.transactions.push(t);
     if (t.accountId) this.state.settings.lastAccountId = t.accountId;
     this.commit();
@@ -244,7 +270,7 @@ export const store = {
   updateTransaction(id, patch) {
     const t = this.state.transactions.find(x => x.id === id);
     if (!t) return null;
-    Object.assign(t, patch);
+    Object.assign(t, patch, { updatedAt: Date.now() });
     this.commit();
     return t;
   },
@@ -253,12 +279,14 @@ export const store = {
     const index = this.state.transactions.findIndex(x => x.id === id);
     if (index < 0) return null;
     const [removed] = this.state.transactions.splice(index, 1);
+    this.state.deleted[id] = Date.now();
     this.commit();
     return removed;
   },
 
   restoreTransaction(tx) {
-    if (!this.state.transactions.some(x => x.id === tx.id)) this.state.transactions.push(tx);
+    delete this.state.deleted[tx.id];
+    if (!this.state.transactions.some(x => x.id === tx.id)) this.state.transactions.push({ ...tx, updatedAt: Date.now() });
     this.commit();
   },
 
@@ -568,7 +596,7 @@ export const store = {
 
   saveBill(bill) {
     const existing = this.state.bills.find(b => b.id === bill.id);
-    if (existing) Object.assign(existing, bill);
+    if (existing) Object.assign(existing, bill, { updatedAt: Date.now() });
     else this.state.bills.push({ paid: false, minDue: 0, source: 'manual', key: `manual|${L.uid()}`, createdAt: Date.now(), ...bill, id: bill.id || L.uid() });
     this.commit();
   },
@@ -583,6 +611,7 @@ export const store = {
 
   deleteBill(id) {
     this.state.bills = this.state.bills.filter(b => b.id !== id);
+    this.state.deleted[id] = Date.now();
     this.commit();
   },
 
@@ -593,6 +622,93 @@ export const store = {
     const current = L.accountBalances([account], this.state.transactions).get(accountId);
     account.openingBalance = (account.openingBalance || 0) + (bankAmount - current);
     this.commit();
+  },
+
+  // ---- Splitting a bill: your share is spending, the rest is money others owe you
+
+  /** split: { total, note, categoryId, accountId, date, tag, people: [{ name, share }], myShare } */
+  addSplit({ total, note, categoryId, accountId, date, tag, people, myShare }) {
+    const group = L.uid();
+    const now = Date.now();
+    const made = [];
+    if (myShare > 0) {
+      made.push({ id: L.uid(), type: 'expense', amount: myShare, categoryId, accountId, date, note: note || '', createdAt: now, updatedAt: now, split: group, ...(tag ? { tag } : {}) });
+    }
+    people.forEach((p, i) => {
+      if (p.share > 0) made.push({ id: L.uid(), type: 'loan', direction: 'out', person: p.name, amount: p.share, categoryId: null, accountId, date, note: note || '', createdAt: now + i + 1, updatedAt: now, split: group });
+    });
+    this.state.transactions.push(...made);
+    if (accountId) this.state.settings.lastAccountId = accountId;
+    this.commit();
+    return { group, made, total };
+  },
+
+  // ---- Savings goals
+
+  saveGoal(goal) {
+    const existing = this.state.goals.find(g => g.id === goal.id);
+    if (existing) Object.assign(existing, goal, { updatedAt: Date.now() });
+    else this.state.goals.push({ added: [], createdAt: Date.now(), ...goal, id: goal.id || L.uid(), updatedAt: Date.now() });
+    this.commit();
+  },
+
+  addToGoal(id, amount) {
+    const goal = this.state.goals.find(g => g.id === id);
+    if (!goal) return;
+    goal.added = [...(goal.added || []), { amount, date: L.todayISO() }];
+    goal.updatedAt = Date.now();
+    this.commit();
+  },
+
+  deleteGoal(id) {
+    this.state.goals = this.state.goals.filter(g => g.id !== id);
+    this.state.deleted[id] = Date.now();
+    this.commit();
+  },
+
+  // ---- EMIs: a repeating expense that stops after the last month
+
+  saveEmi({ name, amount, months, day, startDate, accountId, categoryId, paidBefore = 0 }) {
+    const id = L.uid();
+    const ruleId = L.uid();
+    const first = startDate;
+    const endDate = L.addMonths(first, Math.max(1, months - paidBefore) - 1);
+    const now = Date.now();
+    this.state.recurring.push({
+      id: ruleId, active: true, createdAt: now, updatedAt: now, type: 'expense', amount, categoryId, accountId,
+      note: name, frequency: 'monthly', anchorDay: day, nextDate: first, endDate,
+    });
+    this.state.emis.push({ id, name, amount, months, day, startDate, accountId, ruleId, paidBefore, createdAt: now, updatedAt: now });
+    this.applyRecurring(false);
+    this.commit();
+    return id;
+  },
+
+  deleteEmi(id) {
+    const emi = this.state.emis.find(e => e.id === id);
+    if (!emi) return;
+    this.state.recurring = this.state.recurring.filter(r => r.id !== emi.ruleId);
+    this.state.emis = this.state.emis.filter(e => e.id !== id);
+    this.state.deleted[id] = Date.now();
+    this.state.deleted[emi.ruleId] = Date.now();
+    this.commit();
+  },
+
+  // ---- Business expenses
+
+  markClaimed(ids, date = L.todayISO()) {
+    const set = new Set(ids);
+    for (const t of this.state.transactions) if (set.has(t.id)) { t.claimed = date; t.updatedAt = Date.now(); }
+    this.commit();
+  },
+
+  /** Takes the other device's copy (already merged). */
+  replaceMerged(merged) {
+    this.state = normalizeState(merged);
+    this.state.settings.onboarded = true;
+    const text = JSON.stringify(this.state);
+    native.save(text);
+    for (const fn of this.listeners) fn(this.state);
   },
 
   // ---- Trips, alerts, photos

@@ -53,6 +53,11 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Ask Google Play services to fetch the bill reader when the app is installed -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
+
         <!-- A bank SMS arrived while the app is closed: show "₹500 spent — tap to add" -->
         <receiver
             android:name=".SmsReceiver"

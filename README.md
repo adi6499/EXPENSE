@@ -39,6 +39,19 @@ install it and start adding expenses. Everything is saved on the phone.
   only to reach your own script.
 - **Liquid Glass**: the tab bar floats as a glass island with a gliding selection pill; the top bar, pop-ups, menus,
   toasts and the add button are glass too. Settings → Appearance → Liquid Glass turns it off.
+- **Split a bill**: Split in the editor shares an expense equally; your share is spending, the rest goes to Lent &
+  Borrowed, and each person gets a WhatsApp picture with a UPI "scan to pay" code for their exact share
+  (js/qr.js is the QR encoder; Settings → Payments → Your UPI ID).
+- **Safe to spend today** on Summary and the widget: budget − spent − bills still due − repeating payments to come,
+  spread over the days left.
+- **Ask in search**: "swiggy this month", "petrol last 3 months", "food in October" → the total in words.
+- **Scan a bill** (Android): Scan Bill reads the total, shop and date from a photo on the phone (ML Kit text
+  recognition, bundled, free) and attaches the photo.
+- **Backup & Sync** (Settings): a daily backup file into a folder you choose (Android, last 7 kept), and phone ↔
+  computer sync through the same Google helper script as Bank Emails — your own Google Drive keeps the live copy and
+  a dated backup a day (last 14), restorable from the app. Version 2 of the script; re-copy it if you set up v1.
+- **Loans & EMIs**, **Goals**, **Warranties** (reminders before they end), **Business Expenses** (claim report PDF
+  with bill photos) and a **Calendar** of spending — all under Insights.
 - **Add in seconds**: big number pad, category strip, notes that remember (typing "Swiggy" picks Food & UPI again)
 - **Summary**: spent this month, budget ring, income and balance, today / this week / daily average, where the money went
 - **Transactions**: search, filter by period / category / account, grouped by day, swipe left to delete (with Undo)

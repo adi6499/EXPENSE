@@ -14,6 +14,7 @@ import { showOnboarding } from './onboarding.js';
 import { checkMessages, openReview, addFromSharedText, syncPhone, takeMessageText } from './messages.js';
 import { syncBillReminders, openBills } from './bills.js';
 import { checkEmails } from './email.js';
+import { syncNow, scheduleSync, backupToFolderIfDue } from './sync.js';
 import { nav } from './nav.js';
 
 const TAB_ICONS = { home: 'house', activity: 'list-bullets', insights: 'chart-pie-slice', settings: 'gear-six' };
@@ -86,9 +87,10 @@ function syncPhoneExtras() {
     const month = L.totals(L.inRange(st.transactions, L.startOfMonth(today), L.endOfMonth(today))).expense;
     const todaySpent = L.totals(st.transactions.filter(t => t.date === today)).expense;
     const budget = st.budgets.monthly;
-    const line = budget
-      ? (month <= budget ? `${store.money(budget - month)} left this month` : `${store.money(month - budget)} over budget`)
-      : new Date().toLocaleDateString('en-IN', { month: 'long' });
+    const safe = L.safeToSpend(st);
+    const line = safe
+      ? `Safe to spend today ${store.money(safe.perDay)}`
+      : budget ? `${store.money(Math.max(0, budget - month))} left this month` : new Date().toLocaleDateString('en-IN', { month: 'long' });
     native.updateWidget(store.money(todaySpent), store.money(month), line, store.money(0));
   }, 600);
 }
@@ -152,6 +154,8 @@ function readMessages(thenShow = false) {
   whenUnlocked(async () => {
     await checkMessages();
     await checkEmails();
+    await syncNow();
+    backupToFolderIfDue();
     if (!thenShow) return;
     if (store.state.sms.pending.length) openReview();
     else goTo('home');
@@ -351,6 +355,7 @@ function boot() {
   };
   store.subscribe(renderAll);
   store.subscribe(syncPhoneExtras);
+  store.subscribe(scheduleSync);
   $$('.tab').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.tab !== activeTab) haptic('selection');
     goTo(b.dataset.tab);

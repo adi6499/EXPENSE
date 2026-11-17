@@ -5,6 +5,7 @@ import { native } from './native.js';
 import * as L from './logic.js';
 import { $, esc, icon, tile, pushPage, actionSheet, alert, toast, haptic, promptText, pickAmount, pickDate } from './ui.js';
 import { openEditor } from './editor.js';
+import { planReminders } from './plans.js';
 
 const SHOW_DAYS_AHEAD = 30;
 
@@ -171,5 +172,6 @@ export function syncBillReminders() {
       }
     }
   }
-  native.setBillReminders(list.slice(0, 40));
+  if (store.state.settings.billReminders !== false) list.push(...planReminders());
+  native.setBillReminders(list.slice(0, 60));
 }

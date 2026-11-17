@@ -1,7 +1,7 @@
 // The Summary tab: this month at a glance.
 import { store } from './store.js';
 import * as L from './logic.js';
-import { esc, icon, tile, bindSwipeRows, toast } from './ui.js';
+import { esc, icon, tile, bindSwipeRows, toast, alert } from './ui.js';
 import { ring, stackBar } from './charts.js';
 import { txRow } from './rows.js';
 import { messagesCardHTML, bindFindingRows, onRowTap, onRowDelete } from './messages.js';
@@ -10,6 +10,7 @@ import { peopleCardHTML, handlePeopleClick } from './people.js';
 import { tripBannerHTML, handleTripClick } from './trips.js';
 import { summaryBannerHTML, handleSummaryClick } from './summary.js';
 import { openAccounts } from './manage.js';
+import { goalsCardHTML, handleGoalClick } from './plans.js';
 
 /** "Heads up": a category well above last month, heading over budget, an unusually big spend. */
 function alertsHTML() {
@@ -125,6 +126,11 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
             <div class="card-label">Spent in ${esc(monthName)}</div>
             <div class="hero-amount ${amountText.length > 11 ? 'size-m' : ''}">${esc(amountText)}</div>
             <div class="hero-sub">${budgetLine}</div>
+            ${(() => {
+              const safe = L.safeToSpend(st);
+              if (!safe) return '';
+              return `<div class="safe-line" data-safe role="button">${icon('hand-coins')}<span>Safe to spend today</span><strong class="num" style="color:${safe.perDay ? 'var(--green)' : 'var(--red)'}">${esc(store.money(safe.perDay))}</strong></div>`;
+            })()}
           </div>
           ${budget ? `<div class="hero-ring">${ring(pct, { size: 76, stroke: 10, color: ringColor })}<div class="hero-ring-label">${Math.round(pct * 100)}%</div></div>` : ''}
         </div>
@@ -158,6 +164,7 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
 
       ${balancesHTML()}
       ${peopleCardHTML()}
+      ${goalsCardHTML()}
 
       ${catBudgets.length ? `
       <div class="section" style="margin-top:12px">
@@ -206,7 +213,16 @@ export function createHome(root, { openEditor, goTo, openBudgets }) {
 
   bindFindingRows(root);
   root.addEventListener('click', e => {
-    if (handleBillClick(e) || handlePeopleClick(e) || handleTripClick(e) || handleSummaryClick(e)) return;
+    if (handleBillClick(e) || handlePeopleClick(e) || handleTripClick(e) || handleSummaryClick(e) || handleGoalClick(e)) return;
+    if (e.target.closest('[data-safe]')) {
+      const safe = L.safeToSpend(store.state);
+      if (safe) alert({
+        title: `${store.money(safe.perDay)} a day`,
+        message: `Budget ${store.money(safe.budget)}\n− spent so far ${store.money(safe.spent)}\n− bills still due ${store.money(safe.billsLeft)}\n− repeating payments to come ${store.money(safe.repeatsLeft)}\n= ${store.money(Math.max(0, safe.left))} for the ${safe.daysLeft} day${safe.daysLeft === 1 ? '' : 's'} left`,
+        steps: true,
+      });
+      return;
+    }
     const dismiss = e.target.closest('[data-dismiss]');
     if (dismiss) { store.dismissAlert(dismiss.dataset.dismiss); return; }
     if (e.target.closest('[data-open-accounts]')) { openAccounts(); return; }

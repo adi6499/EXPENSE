@@ -185,7 +185,16 @@ object Photos {
     }
 
     /** Reads a picked picture, turns it the right way up and shrinks it (longest side 1600 px) to a JPEG data URL. */
-    fun loadScaled(context: Context, uri: Uri): String {
+    fun loadScaled(context: Context, uri: Uri): String = toDataUrl(loadBitmap(context, uri))
+
+    fun toDataUrl(bitmap: Bitmap): String {
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 78, out)
+        return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    }
+
+    /** The picture the right way up, longest side at most 1600 px. */
+    fun loadBitmap(context: Context, uri: Uri): Bitmap {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
@@ -211,8 +220,6 @@ object Photos {
             val matrix = Matrix().apply { postScale(scale, scale); postRotate(rotation) }
             bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         }
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 78, out)
-        return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        return bitmap
     }
 }

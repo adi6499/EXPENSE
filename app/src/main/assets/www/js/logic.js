@@ -366,6 +366,8 @@ export function runRecurring(rules, today = todayISO(), now = Date.now()) {
     if (!rule.active) continue;
     let guard = 0;
     while (rule.nextDate <= today && guard < 1000) {
+      // An EMI or a plan with an end: stop after the last one
+      if (rule.endDate && rule.nextDate > rule.endDate) { rule.active = false; break; }
       created.push({
         id: uid(),
         type: rule.type,
@@ -838,4 +840,255 @@ export function parseSpoken(text, today = todayISO()) {
   const date = /day before yesterday/.test(raw) ? addDays(today, -2) : /yesterday/.test(raw) ? addDays(today, -1) : today;
   const note = rest.replace(SPOKEN_FILLER, ' ').replace(/[^a-z0-9&' -]/g, ' ').replace(/\s+/g, ' ').trim();
   return { amount, type, date, note: note ? note.charAt(0).toUpperCase() + note.slice(1) : '' };
+}
+
+// ---------- Safe to spend today
+
+/**
+ * How much can go on today and stay within the monthly budget: what's left of the budget, minus
+ * bills still due and repeating payments still to come this month, spread over the days left.
+ * Returns null without a monthly budget. Card bills are left out (their spending is already counted).
+ */
+export function safeToSpend({ transactions, budgets = {}, bills = [], recurring = [] }, today = todayISO()) {
+  const budget = budgets.monthly || 0;
+  if (!budget) return null;
+  const monthEnd = endOfMonth(today);
+  const spent = totals(inRange(transactions, startOfMonth(today), monthEnd)).expense;
+  const billsLeft = bills
+    .filter(b => !b.paid && b.dueDate >= today && b.dueDate <= monthEnd && !/card/i.test(b.name || ''))
+    .reduce((sum, b) => sum + b.amount, 0);
+  let repeatsLeft = 0;
+  for (const r of recurring) {
+    if (!r.active || r.type !== 'expense') continue;
+    let date = r.nextDate;
+    for (let guard = 0; date && date <= monthEnd && guard < 40; guard++) {
+      if (date > today && (!r.endDate || date <= r.endDate)) repeatsLeft += r.amount;
+      date = nextOccurrence(date, r.frequency, r.anchorDay);
+    }
+  }
+  const left = budget - spent - billsLeft - repeatsLeft;
+  const daysLeft = daysBetween(today, monthEnd) + 1;
+  const perDay = left > 0 ? Math.floor(left / daysLeft / 1000) * 1000 : 0; // whole ₹10s
+  return { perDay, left, daysLeft, spent, billsLeft, repeatsLeft, budget };
+}
+
+// ---------- Asking a question in search ("swiggy this month", "how much on petrol last 3 months")
+
+const MONTH_LONG = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/** Finds a time period in typed text. Returns { text (the rest), period, kind } — period may be null. */
+export function parseQuery(input, today = todayISO()) {
+  let text = ` ${String(input || '').toLowerCase()} `;
+  let period = null;
+  const take = (re, make) => {
+    if (period) return;
+    const m = text.match(re);
+    if (!m) return;
+    const p = make(m);
+    if (!p) return;
+    period = p;
+    text = text.replace(m[0], ' ');
+  };
+  const som = startOfMonth(today);
+  take(/\btoday\b/, () => ({ key: 'q', label: 'Today', start: today, end: today }));
+  take(/\byesterday\b/, () => { const d = addDays(today, -1); return { key: 'q', label: 'Yesterday', start: d, end: d }; });
+  take(/\bthis week\b/, () => ({ key: 'q', label: 'This week', start: startOfWeek(today), end: today }));
+  take(/\blast week\b/, () => { const s = addDays(startOfWeek(today), -7); return { key: 'q', label: 'Last week', start: s, end: addDays(s, 6) }; });
+  take(/\b(?:this|current) month\b/, () => ({ key: 'q', label: 'This month', start: som, end: endOfMonth(today) }));
+  take(/\blast month\b/, () => { const s = addMonths(som, -1); return { key: 'q', label: 'Last month', start: s, end: endOfMonth(s) }; });
+  take(/\bthis year\b/, () => ({ key: 'q', label: 'This year', start: `${today.slice(0, 4)}-01-01`, end: `${today.slice(0, 4)}-12-31` }));
+  take(/\blast year\b/, () => { const y = Number(today.slice(0, 4)) - 1; return { key: 'q', label: 'Last year', start: `${y}-01-01`, end: `${y}-12-31` }; });
+  take(/\b(?:last|past) (\d{1,3}) (day|week|month)s?\b/, m => {
+    const n = Number(m[1]);
+    if (!n) return null;
+    const start = m[2] === 'day' ? addDays(today, -(n - 1)) : m[2] === 'week' ? addDays(today, -(n * 7 - 1)) : addMonths(som, -(n - 1));
+    return { key: 'q', label: `Last ${n} ${m[2]}${n === 1 ? '' : 's'}`, start, end: today };
+  });
+  take(new RegExp(String.raw`\b(?:in |for |of |during )?(${MONTH_LONG.join('|')}|${MONTH_LONG.map(x => x.slice(0, 3)).join('|')})(?: (\d{4}))?\b`), m => {
+    const month = MONTH_LONG.findIndex(x => x.startsWith(m[1].slice(0, 3)));
+    let year = m[2] ? Number(m[2]) : Number(today.slice(0, 4));
+    if (!m[2] && `${year}-${String(month + 1).padStart(2, '0')}-01` > today) year -= 1;
+    const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    return { key: 'q', label: parseISO(start).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }), start, end: endOfMonth(start) };
+  });
+  const kind = /\b(?:earn|earned|earning|income|received|got|salary came)\b/.test(text) ? 'income'
+    : /\b(?:spend|spent|spending|paid|pay|expense|expenses|cost)\b/.test(text) ? 'expense' : null;
+  text = text
+    .replace(/\b(?:how much|what|did|do|i|we|my|me|have|has|total|in all|altogether|spend|spent|spending|paid|pay|on|at|for|to|the|a|an|was|is|of|in|during|earn|earned|earning|income|received|got|expense|expenses|cost|money)\b/g, ' ')
+    .replace(/[?.,!]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { text, period, kind };
+}
+
+// ---------- Scanning a shop bill (text read from a photo)
+
+const TOTAL_WORDS = [
+  [/\bgrand\s*total\b/i, 5], [/\bnet\s*(?:amount|amt|payable|total)\b/i, 4], [/\b(?:amount|amt)\s*payable\b|\btotal\s*payable\b|\bpay\s*able\b/i, 4],
+  [/\bbill\s*(?:amount|amt|total)\b|\btotal\s*(?:amount|amt|rs|inr|₹)\b/i, 3], [/\btotal\b/i, 2],
+];
+const NOT_TOTAL = /\b(?:sub\s*-?\s*total|total\s*(?:items?|qty|quantity|savings?|discount|tax|gst|weight|mrp)|you saved|savings|discount|cgst|sgst|igst|gst\b|tax\b|tendered|change\b|round(?:ed)?\s*off|balance|paid by|card no)/i;
+const RECEIPT_AMOUNT = /(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+\.\d{1,2}|\d+)(?!\s*%)(?!\d)/gi;
+
+function amountsIn(line) {
+  const out = [];
+  let m;
+  RECEIPT_AMOUNT.lastIndex = 0;
+  while ((m = RECEIPT_AMOUNT.exec(line))) {
+    const value = Math.round(parseFloat(m[1].replace(/,/g, '')) * 100);
+    if (value > 0 && value < 1e10) out.push(value);
+  }
+  return out;
+}
+
+/** Reads the text of a shop bill: { amount, merchant, date } (each may be empty). */
+export function parseReceipt(text, today = todayISO()) {
+  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let best = null;
+  lines.forEach((line, i) => {
+    if (NOT_TOTAL.test(line)) return;
+    for (const [re, weight] of TOTAL_WORDS) {
+      if (!re.test(line)) continue;
+      let values = amountsIn(line.replace(re, ' '));
+      if (!values.length && lines[i + 1]) values = amountsIn(lines[i + 1]);
+      if (values.length && (!best || weight > best.weight || (weight === best.weight && i > best.index))) {
+        best = { amount: values[values.length - 1], weight, index: i };
+      }
+      break;
+    }
+  });
+  let amount = best ? best.amount : 0;
+  if (!amount) {
+    // No "total" line: the biggest amount with paise is usually the bill total
+    const withPaise = lines.flatMap(l => (NOT_TOTAL.test(l) ? [] : (l.match(/\d+\.\d{2}\b/g) || []).map(v => Math.round(parseFloat(v) * 100))));
+    amount = withPaise.length ? Math.max(...withPaise) : 0;
+  }
+  const merchantLine = lines.slice(0, 5).find(l => /[a-z]{3,}/i.test(l) && !/\b(?:tax invoice|invoice|receipt|bill|cash memo|gstin|gst|welcome|thank|ph|phone|tel|mob|mobile|www|email|date|time|order|table|token|kot)\b|@|\d{6,}/i.test(l));
+  let merchant = '';
+  if (merchantLine) {
+    merchant = merchantLine.replace(/[^A-Za-z0-9&' .-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (merchant === merchant.toUpperCase()) merchant = merchant.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+  }
+  let date = '';
+  for (const line of lines) {
+    const m = line.match(/\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}[\s-](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s,-]+\d{2,4}|\d{4}-\d{2}-\d{2})\b/i);
+    if (!m) continue;
+    const iso = parseFlexibleDate(m[1], 'dmy');
+    if (iso && iso <= today && iso >= addDays(today, -400)) { date = iso; break; }
+  }
+  return { amount, merchant, date };
+}
+
+// ---------- Splitting a bill
+
+/** Splits total (minor units) into n shares that add up exactly; the extra paise go to the first shares. */
+export function splitAmount(total, n) {
+  if (!n || n < 1) return [];
+  const base = Math.floor(total / n);
+  const extra = total - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+// ---------- Goals, EMIs, warranties
+
+/** A savings goal's progress: { saved, pct, left, monthsLeft, perMonth, done }. */
+export function goalProgress(goal, today = todayISO()) {
+  const saved = (goal.added || []).reduce((sum, a) => sum + a.amount, 0);
+  const left = Math.max(0, goal.target - saved);
+  let monthsLeft = null;
+  let perMonth = null;
+  if (goal.byDate) {
+    const a = parseISO(today);
+    const b = parseISO(goal.byDate);
+    monthsLeft = Math.max(1, (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + (b.getDate() >= a.getDate() ? 0 : 0));
+    perMonth = Math.ceil(left / monthsLeft / 100) * 100;
+  }
+  return { saved, pct: goal.target ? Math.min(1, saved / goal.target) : 0, left, monthsLeft, perMonth, done: saved >= goal.target };
+}
+
+/** An EMI's state from the repeating rule that pays it: { paid, total, left, leftAmount, nextDate, done }. */
+export function emiStatus(emi, rule, transactions) {
+  const paid = transactions.filter(t => t.recurringId && rule && t.recurringId === rule.id).length + (emi.paidBefore || 0);
+  const left = Math.max(0, emi.months - paid);
+  return { paid: Math.min(paid, emi.months), total: emi.months, left, leftAmount: left * emi.amount, nextDate: left && rule ? rule.nextDate : null, done: left === 0 };
+}
+
+/** Everything with a warranty, soonest to end first: [{ tx, until, daysLeft }]. */
+export function warranties(transactions, today = todayISO()) {
+  return transactions
+    .filter(t => t.warranty && /^\d{4}-\d{2}-\d{2}$/.test(t.warranty))
+    .map(t => ({ tx: t, until: t.warranty, daysLeft: daysBetween(today, t.warranty) }))
+    .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0));
+}
+
+// ---------- Calendar
+
+/** Weeks (Monday first) of a month: [[{ date, inMonth, spent, income, count }]]. */
+export function monthCalendar(monthStart, transactions) {
+  const start = startOfWeek(monthStart);
+  const end = endOfMonth(monthStart);
+  const byDay = new Map();
+  for (const t of inRange(transactions, monthStart, end)) {
+    const d = byDay.get(t.date) || { spent: 0, income: 0, count: 0 };
+    if (t.type === 'expense') d.spent += t.amount;
+    if (t.type === 'income') d.income += t.amount;
+    d.count += 1;
+    byDay.set(t.date, d);
+  }
+  const weeks = [];
+  const last = addDays(startOfWeek(end), 6);
+  for (let day = start; day <= last; day = addDays(day, 1)) {
+    if (!weeks.length || weeks[weeks.length - 1].length === 7) weeks.push([]);
+    const info = byDay.get(day) || { spent: 0, income: 0, count: 0 };
+    weeks[weeks.length - 1].push({ date: day, inMonth: day.slice(0, 7) === monthStart.slice(0, 7), ...info });
+  }
+  return weeks;
+}
+
+// ---------- Two devices: merging (phone ↔ computer sync)
+
+// Settings that belong to one device and never travel
+const DEVICE_SETTINGS = ['lock', 'reminder', 'glass', 'appearance', 'backup', 'sync', 'lastAccountId'];
+const DEVICE_SMS = ['enabled', 'autoAdd', 'notify', 'lastDate'];
+
+const stamp = r => (r && (r.updatedAt || r.createdAt)) || 0;
+
+function mergeById(newer = [], older = [], deleted = {}) {
+  const map = new Map();
+  for (const r of older) if (r && r.id) map.set(r.id, r);
+  for (const r of newer) {
+    if (!r || !r.id) continue;
+    const other = map.get(r.id);
+    map.set(r.id, !other || stamp(r) >= stamp(other) ? r : other);
+  }
+  return [...map.values()].filter(r => !(deleted[r.id] && deleted[r.id] >= stamp(r)));
+}
+
+/**
+ * Merges this device's data with the copy from the other device. Transactions, bills, goals, EMIs
+ * and repeating rules are joined record by record (newest edit wins, deletions stick); the rest
+ * comes from whichever side was saved last; device-only settings stay as they are here.
+ */
+export function mergeStates(local, remote) {
+  if (!remote || typeof remote !== 'object') return local;
+  const newer = (remote.savedAt || 0) > (local.savedAt || 0) ? remote : local;
+  const older = newer === remote ? local : remote;
+  const deleted = { ...(older.deleted || {}) };
+  for (const [id, at] of Object.entries(newer.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, at);
+  const merged = JSON.parse(JSON.stringify(newer));
+  merged.deleted = deleted;
+  for (const key of ['transactions', 'bills', 'goals', 'emis', 'recurring', 'categories', 'accounts']) {
+    merged[key] = mergeById(newer[key], older[key], deleted);
+  }
+  const pendingSeen = new Set(merged.transactions.filter(t => t.sms).map(t => t.sms.id));
+  merged.sms = merged.sms || {};
+  merged.sms.pending = mergeById(newer.sms && newer.sms.pending, older.sms && older.sms.pending, deleted).filter(p => !pendingSeen.has(p.id));
+  merged.sms.payees = { ...((older.sms || {}).payees || {}), ...((newer.sms || {}).payees || {}) };
+  merged.sms.accounts = { ...((older.sms || {}).accounts || {}), ...((newer.sms || {}).accounts || {}) };
+  // This device keeps its own switches
+  merged.settings = merged.settings || {};
+  for (const key of DEVICE_SETTINGS) if (local.settings && key in local.settings) merged.settings[key] = local.settings[key];
+  for (const key of DEVICE_SMS) if (local.sms && key in local.sms) merged.sms[key] = local.sms[key];
+  merged.savedAt = Math.max(local.savedAt || 0, remote.savedAt || 0);
+  return merged;
 }

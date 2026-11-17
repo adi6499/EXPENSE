@@ -33,11 +33,16 @@ export function createActivity(root, { openEditor, filterButton }) {
   const searchInput = $('input', root);
   const clearBtn = $('.search-clear', root);
 
+  let asked = null; // the question read from the search box: { text, period, kind }
+
   function filtered() {
-    const q = f.query.trim().toLowerCase();
+    asked = f.query.trim() ? L.parseQuery(f.query) : null;
+    const q = asked ? asked.text : '';
+    const period = f.period || (asked && asked.period);
+    const type = f.type !== 'all' ? f.type : (asked && asked.kind) || 'all';
     return L.sortTransactions(store.state.transactions.filter(t => {
-      if (f.type !== 'all' && t.type !== f.type) return false;
-      if (f.period && (t.date < f.period.start || t.date > f.period.end)) return false;
+      if (type !== 'all' && t.type !== type) return false;
+      if (period && (t.date < period.start || t.date > period.end)) return false;
       if (f.categoryId && t.categoryId !== f.categoryId) return false;
       if (f.accountId && t.accountId !== f.accountId && t.toAccountId !== f.accountId) return false;
       if (f.tag && String(t.tag || '').toLowerCase() !== f.tag.toLowerCase()) return false;
@@ -94,6 +99,15 @@ export function createActivity(root, { openEditor, filterButton }) {
     if (t.expense) parts.push(`spent ${store.money(t.expense)}`);
     if (t.income) parts.push(`received ${store.money(t.income)}`);
     summary.textContent = parts.join(' · ');
+    // A question ("petrol last 3 months"): answer it in words
+    if (asked && (asked.period || asked.kind)) {
+      const period = f.period || asked.period;
+      const income = asked.kind === 'income' || (!t.expense && t.income);
+      const what = asked.text ? ` on “${asked.text}”` : '';
+      const when = period ? ` ${period.label.charAt(0).toLowerCase()}${period.label.slice(1)}` : '';
+      summary.innerHTML = `<div class="answer-card"><div class="answer-amount">${esc(store.money(income ? t.income : t.expense))}</div>
+        <div class="answer-text">${income ? 'Received' : 'Spent'}${esc(what)}${esc(when)} · ${list.length} time${list.length === 1 ? '' : 's'}</div></div>`;
+    }
 
     const shown = list.slice(0, limit);
     const groups = L.groupByDay(shown);

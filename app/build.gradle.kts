@@ -23,8 +23,8 @@ android {
         applicationId = "com.adi6499.expenses"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.4.0"
     }
 
     signingConfigs {
@@ -64,4 +64,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.0")
     implementation("androidx.webkit:webkit:1.12.1")
+    // Reads the text on a photographed shop bill, on the phone, free. Uses the reader inside Google Play
+    // services (downloaded once, then offline) so the app stays small; the bundled one adds ~40 MB.
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
 }

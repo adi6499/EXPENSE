@@ -12,6 +12,12 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.DocumentsContract
+import android.print.PrintAttributes
+import android.print.PrintManager
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import android.provider.Telephony
 import android.speech.RecognizerIntent
 import android.content.ClipData
@@ -60,6 +66,8 @@ class MainActivity : ComponentActivity() {
     private var pendingExportBytes: ByteArray? = null
     private var cameraUri: Uri? = null
     private var cameraFile: File? = null
+    private var scanMode = false
+    private var printWebView: WebView? = null
 
     val createDocumentLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = pendingFileId ?: return@registerForActivityResult
@@ -161,18 +169,30 @@ class MainActivity : ComponentActivity() {
             resolve(id, JSONObject().put("ok", false).put("cancelled", true))
             return@registerForActivityResult
         }
+        val scanning = scanMode
         Thread {
-            val answer = try {
-                JSONObject().put("ok", true).put("dataUrl", Photos.loadScaled(this, uri))
+            try {
+                val bitmap = Photos.loadBitmap(this, uri)
+                val dataUrl = Photos.toDataUrl(bitmap)
+                cameraFile?.delete()
+                if (!scanning) {
+                    resolve(id, JSONObject().put("ok", true).put("dataUrl", dataUrl))
+                } else {
+                    // Read the bill's text on the phone; the web app finds the total, shop and date
+                    TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                        .process(InputImage.fromBitmap(bitmap, 0))
+                        .addOnSuccessListener { text -> resolve(id, JSONObject().put("ok", true).put("text", text.text).put("dataUrl", dataUrl)) }
+                        .addOnFailureListener { resolve(id, JSONObject().put("ok", true).put("text", "").put("dataUrl", dataUrl).put("readerMissing", true)) }
+                }
             } catch (e: Exception) {
-                JSONObject().put("ok", false).put("error", "Couldn't open that picture")
+                cameraFile?.delete()
+                resolve(id, JSONObject().put("ok", false).put("error", "Couldn't open that picture"))
             }
-            cameraFile?.delete()
-            resolve(id, answer)
         }.start()
     }
 
-    fun pickPhoto(id: String) {
+    fun pickPhoto(id: String, scan: Boolean = false) {
+        scanMode = scan
         startFileRequest(id)
         val gallery = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
         val extras = mutableListOf<Intent>()
@@ -198,6 +218,74 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             pendingFileId = null
             resolve(id, JSONObject().put("ok", false).put("error", "No camera or gallery app found"))
+        }
+    }
+
+    /** A folder for the daily backup file (Android keeps the permission). */
+    val folderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val id = pendingFileId ?: return@registerForActivityResult
+        pendingFileId = null
+        if (uri == null) {
+            resolve(id, JSONObject().put("ok", false).put("cancelled", true))
+            return@registerForActivityResult
+        }
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            getSharedPreferences("backup", MODE_PRIVATE).edit().putString("folder", uri.toString()).apply()
+            val name = DocumentsContract.getTreeDocumentId(uri).substringAfterLast(':').substringAfterLast('/').ifEmpty { "Phone storage" }
+            resolve(id, JSONObject().put("ok", true).put("uri", uri.toString()).put("name", name))
+        } catch (e: Exception) {
+            resolve(id, JSONObject().put("ok", false).put("error", "Couldn't use that folder"))
+        }
+    }
+
+    /** Writes today's backup into the chosen folder and keeps only the newest 7. */
+    fun writeBackup(id: String, fileName: String, text: String) {
+        Thread {
+            val answer = try {
+                val tree = Uri.parse(getSharedPreferences("backup", MODE_PRIVATE).getString("folder", null) ?: error("No folder chosen"))
+                val treeId = DocumentsContract.getTreeDocumentId(tree)
+                val parent = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
+                val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId)
+                val existing = mutableListOf<Pair<String, Uri>>()
+                contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val name = c.getString(1) ?: continue
+                        if (name.startsWith("expenses-backup-")) existing += name to DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                    }
+                }
+                val target = existing.firstOrNull { it.first == fileName }?.second
+                    ?: DocumentsContract.createDocument(contentResolver, parent, "application/json", fileName)
+                    ?: error("Couldn't create the file")
+                (contentResolver.openOutputStream(target, "wt") ?: error("Couldn't open the file")).use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                val names = (existing.map { it.first } + fileName).distinct().sortedDescending()
+                for ((name, doc) in existing) if (names.indexOf(name) >= 7) DocumentsContract.deleteDocument(contentResolver, doc)
+                JSONObject().put("ok", true)
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("error", "Couldn't write the backup — choose the folder again")
+            }
+            resolve(id, answer)
+        }.start()
+    }
+
+    /** Prints a page (the claim report); the print screen has "Save as PDF". */
+    fun printHtml(id: String, html: String, title: String) {
+        runOnUiThread {
+            try {
+                val web = WebView(this)
+                web.settings.javaScriptEnabled = false
+                web.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        val manager = getSystemService(PrintManager::class.java)
+                        manager.print(title, view.createPrintDocumentAdapter(title), PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
+                        resolve(id, JSONObject().put("ok", true))
+                    }
+                }
+                printWebView = web // keep it alive while the print screen uses it
+                web.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            } catch (e: Exception) {
+                resolve(id, JSONObject().put("ok", false).put("error", "Printing isn't available on this phone"))
+            }
         }
     }
 

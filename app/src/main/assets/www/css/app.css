@@ -2756,6 +2756,133 @@ body.behind-sheet #tabs {
   .onboard-body, .onboard-actions { width: 100%; max-width: 440px; }
 }
 
+/* ---------- Safe to spend, answers, goals, split, calendar */
+
+.safe-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--label-2);
+}
+
+.safe-line strong {
+  font-size: 17px;
+}
+
+.answer-card {
+  margin: 0 16px 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--bg2);
+}
+
+.answer-amount {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.answer-text {
+  margin-top: 2px;
+  font-size: 15px;
+  color: var(--label-2);
+}
+
+.goal-ring {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.goal-ring svg {
+  position: absolute;
+  inset: 0;
+}
+
+.goal-ring span {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.split-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.cal {
+  padding: 12px 10px;
+}
+
+.cal-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-row + .cal-row {
+  margin-top: 4px;
+}
+
+.cal-head span {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label-2);
+  padding-bottom: 4px;
+}
+
+.cal-day {
+  position: relative;
+  min-height: 52px;
+  padding: 5px 2px 4px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: color-mix(in srgb, var(--red) calc(var(--heat) * 55%), var(--fill-2));
+}
+
+.cal-day.out {
+  background: transparent;
+  opacity: 0.35;
+}
+
+.cal-day.today {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.cal-num {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cal-amt {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cal-bill {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--orange);
+}
+
 /* ---------- Liquid Glass
    The floating layer is glass: the tab bar (a floating island with a gliding selection pill),
    the add button, the top bar while scrolling, alerts, menus and toasts. Content stays solid so

@@ -4,6 +4,7 @@ import * as L from './logic.js';
 import { esc, icon, tile, pushPage, actionSheet } from './ui.js';
 import { openEditor } from './editor.js';
 import { nav } from './nav.js';
+import { askToPay } from './split.js';
 
 function personRow(p) {
   const owesYou = p.balance > 0;
@@ -45,7 +46,7 @@ async function personActions(key) {
   if (p.balance < 0) actions.push({ text: `Paid ${store.money(owed)} Back`, value: 'paid-all', icon: 'check-circle' });
   actions.push({ text: 'Got Some Money', value: 'got', icon: 'arrow-down' });
   actions.push({ text: 'Gave Money', value: 'gave', icon: 'arrow-up' });
-  if (owesYou) actions.push({ text: 'Send a Reminder on WhatsApp', value: 'remind', icon: 'chat-circle-text' });
+  if (owesYou) actions.push({ text: 'Ask to Pay (UPI code)', value: 'remind', icon: 'qr-code' });
   actions.push({ text: 'See Transactions', value: 'list', icon: 'list-bullets' });
   const choice = await actionSheet({
     title: p.name,
@@ -58,10 +59,7 @@ async function personActions(key) {
   else if (choice === 'got') loan('in');
   else if (choice === 'gave') loan('out');
   else if (choice === 'list') nav.showActivity({ person: p.name });
-  else if (choice === 'remind') {
-    const text = `Hi ${p.name}, just a reminder about the ${store.money(owed)} from ${L.shortDate(p.last)}. Thanks!`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  }
+  else if (choice === 'remind') askToPay({ name: p.name, amount: owed, note: '' });
 }
 
 export function openPeople() {

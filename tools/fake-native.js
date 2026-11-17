@@ -59,6 +59,16 @@
     setBillReminders(json) { window.__lastReminders = JSON.parse(json); },
     updateWidget(today, month, line) { window.__widget = { today, month, line }; },
     cleanPhotos() {},
+    scanBill(id) {
+      const c = document.createElement('canvas'); c.width = 60; c.height = 80; c.getContext('2d').fillRect(10, 10, 40, 60);
+      const text = ['SHREE SAGAR RESTAURANT', 'MG Road, Pune', 'TAX INVOICE', 'Date: ' + new Date().toLocaleDateString('en-GB'),
+        'Paneer Tikka 280.00', 'Sub Total 480.00', 'CGST 12.00', 'Grand Total  Rs 504.00'].join(String.fromCharCode(10));
+      reply(id, { ok: true, dataUrl: c.toDataURL('image/jpeg'), text });
+    },
+    shareImageText(id, fileName, base64, text) { window.__shared = { fileName, size: base64.length, text }; reply(id, { ok: true }); },
+    printHtml(id, html) { window.__printed = html.length; reply(id, { ok: true }); },
+    pickBackupFolder(id) { reply(id, { ok: true, uri: 'content://fake/tree', name: 'Documents' }); },
+    writeBackup(id, fileName, text) { window.__backups = (window.__backups || []).concat(fileName + ':' + text.length); reply(id, { ok: true }); },
   };
 
   // A new message arriving while the app is open

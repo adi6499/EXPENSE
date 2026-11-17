@@ -10,6 +10,7 @@ import {
   segmented, bindSegmented, amountSizeClass, haptic, toast, promptText, alert,
 } from './ui.js';
 import { openCategoryEditor, openAccountEditor } from './manage.js';
+import { openSplit } from './split.js';
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
@@ -45,6 +46,8 @@ export function openEditor(existing = null, preset = {}) {
     tag: existing ? (existing.tag || '') : (preset.tag !== undefined ? preset.tag : store.state.settings.activeTag || ''),
     repeat: rule ? rule.frequency : 'never',
     photo: existing ? !!existing.photo : false, // a photo is saved for this transaction
+    warranty: (existing && existing.warranty) || '',
+    business: existing ? !!existing.business : !!preset.business,
     categoryTouched: editing || !!preset.categoryId,
   };
   const tagFromTrip = !existing && preset.tag === undefined && !!store.state.settings.activeTag;
@@ -62,6 +65,7 @@ export function openEditor(existing = null, preset = {}) {
 
   const titleText = () => `${editing ? 'Edit' : 'New'} ${TYPE_TITLES[s.type]}`;
   const canSpeak = !editing && native.canListen();
+  const canScan = !editing && native.canScan();
 
   const handle = openSheet({
     size: 'large',
@@ -145,11 +149,15 @@ export function openEditor(existing = null, preset = {}) {
     const showPhoto = s.type !== 'transfer';
     const hasPhoto = !photoRemoved && (photoData || s.photo);
     $('.detail-row', root).innerHTML = `
+      ${canScan ? `<button class="chip" data-detail="scan">${icon('scan')}Scan Bill</button>` : ''}
       ${canSpeak ? `<button class="chip" data-detail="speak" aria-label="Speak">${icon('microphone')}Speak</button>` : ''}
       <button class="chip" data-detail="date">${icon('calendar-blank')}${esc(L.shortDate(s.date))}</button>
       ${s.type !== 'transfer' ? `<button class="chip" data-detail="account">${icon(account ? account.icon : 'wallet')}${esc(account ? account.name : 'No account')}</button>` : ''}
       <button class="chip ${s.tag ? 'on' : ''}" data-detail="tag">${icon('tag')}${esc(s.tag || 'Tag')}</button>
       ${showPhoto ? `<button class="chip ${hasPhoto ? 'on' : ''}" data-detail="photo">${icon('camera')}${hasPhoto ? 'Photo' : 'Add Photo'}</button>` : ''}
+      ${s.type === 'expense' && !editing ? `<button class="chip" data-detail="split">${icon('users')}Split</button>` : ''}
+      ${s.type === 'expense' ? `<button class="chip ${s.warranty ? 'on' : ''}" data-detail="warranty">${icon('shield-check')}${s.warranty ? `Warranty to ${esc(L.shortDate(s.warranty))}` : 'Warranty'}</button>` : ''}
+      ${s.type === 'expense' ? `<button class="chip ${s.business ? 'on' : ''}" data-detail="business">${icon('briefcase')}Business</button>` : ''}
       <button class="chip ${s.repeat !== 'never' ? 'on' : ''}" data-detail="repeat">${icon('repeat')}${esc(s.repeat === 'never' ? 'Repeat' : L.FREQUENCY_LABELS[s.repeat])}</button>
       ${editing ? `<button class="chip danger" data-detail="delete" aria-label="Delete">${icon('trash')}Delete</button>` : ''}`;
   }
@@ -225,6 +233,8 @@ export function openEditor(existing = null, preset = {}) {
       direction: s.type === 'loan' ? s.direction : undefined,
       // A running trip tags spending by default, not money moved between accounts or people
       tag: (tagFromTrip && !hasCategories(s.type) && s.tag === store.state.settings.activeTag) ? undefined : s.tag || undefined,
+      warranty: s.type === 'expense' && s.warranty ? s.warranty : undefined,
+      business: s.type === 'expense' && s.business ? true : undefined,
     };
     let tx;
     if (editing) {
@@ -295,6 +305,31 @@ export function openEditor(existing = null, preset = {}) {
     repaintAll();
     haptic('success');
     toast(`Heard “${heard.text}”`, { iconName: 'microphone' });
+  }
+
+  // ---- Scanning a shop bill (Android): the total, the shop and the date are read from the photo
+
+  async function scanBill() {
+    const scanned = await native.scanBill();
+    if (!scanned.ok) {
+      if (scanned.error) toast(scanned.error, { iconName: 'warning-circle' });
+      return;
+    }
+    const r = L.parseReceipt(scanned.text || '');
+    if (scanned.dataUrl) { photoData = scanned.dataUrl; photoRemoved = false; }
+    if (r.amount) s.typed = L.minorToTyped(r.amount);
+    if (r.merchant && !s.note.trim()) s.note = r.merchant;
+    if (r.date) s.date = r.date;
+    if (s.type !== 'expense') s.type = 'expense';
+    const guess = S.guessCategory({ type: 'expense', merchant: s.note, body: scanned.text || '' }, store.state);
+    if (guess && guess !== 'other') { s.categoryId = guess; s.categoryTouched = true; }
+    const seg = $('.segmented[data-name="type"]', root);
+    $$('button', seg).forEach((b, i) => { const on = b.dataset.value === s.type; b.classList.toggle('on', on); if (on) seg.style.setProperty('--i', i); });
+    repaintAll();
+    haptic(r.amount ? 'success' : 'warning');
+    toast(r.amount ? `Read ${store.money(r.amount)}${r.merchant ? ` · ${r.merchant}` : ''} — check it, then Add`
+      : scanned.readerMissing ? 'The bill reader is still downloading (once, through Google Play services) — try again in a minute. The photo is attached.'
+      : 'Couldn’t find the total — type it in. The photo is attached.', { iconName: 'scan', duration: 6000 });
   }
 
   // ---- Photo of the bill
@@ -482,6 +517,38 @@ export function openEditor(existing = null, preset = {}) {
         s.tag = choice.slice(4);
         paintDetails();
       }
+    } else if (kind === 'scan') {
+      scanBill();
+    } else if (kind === 'split') {
+      const amount = L.typedToMinor(s.typed);
+      if (!amount) { shake(amountEl); toast('Type the full bill amount first', { iconName: 'users' }); return; }
+      const done = await openSplit({ amount, note: s.note.trim(), categoryId: s.categoryId, accountId: s.accountId, date: s.date, tag: s.tag || undefined });
+      if (done) handle.close('saved');
+    } else if (kind === 'warranty') {
+      const options = [[6, '6 months'], [12, '1 year'], [24, '2 years'], [36, '3 years'], [60, '5 years']];
+      const choice = await actionSheet({
+        title: 'Warranty',
+        message: 'You’ll be reminded a month and a week before it ends. Add a photo of the bill too.',
+        actions: [
+          ...options.map(([m, label]) => ({ text: label, value: String(m), checked: s.warranty === L.addMonths(s.date, m) })),
+          { text: 'Pick the End Date…', value: 'date', icon: 'calendar-blank' },
+          ...(s.warranty ? [{ text: 'No Warranty', value: 'none' }] : []),
+        ],
+      });
+      if (choice === 'date') {
+        const picked = await pickDate(s.warranty || L.addMonths(s.date, 12), { title: 'Warranty Ends' });
+        if (picked) s.warranty = picked;
+      } else if (choice === 'none') {
+        s.warranty = '';
+      } else if (choice) {
+        s.warranty = L.addMonths(s.date, Number(choice));
+      }
+      paintDetails();
+    } else if (kind === 'business') {
+      s.business = !s.business;
+      haptic('selection');
+      paintDetails();
+      if (s.business) toast('Marked as business — find it in Insights → Business Expenses', { iconName: 'briefcase' });
     } else if (kind === 'photo') {
       photoMenu();
     } else if (kind === 'repeat') {
@@ -507,6 +574,7 @@ export function openEditor(existing = null, preset = {}) {
 
   repaintAll();
   if (preset.speak && canSpeak) setTimeout(speak, 350);
+  if (preset.scan && canScan) setTimeout(scanBill, 350);
   return handle;
 }
 

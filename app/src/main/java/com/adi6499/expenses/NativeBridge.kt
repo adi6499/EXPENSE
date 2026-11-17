@@ -326,6 +326,57 @@ class NativeBridge(private val activity: MainActivity) {
         activity.runOnUiThread { activity.pickPhoto(id) }
     }
 
+    /** A photo of a shop bill, with its text read on the phone. Answers { ok, text, dataUrl }. */
+    @JavascriptInterface
+    fun scanBill(id: String) {
+        activity.runOnUiThread { activity.pickPhoto(id, scan = true) }
+    }
+
+    /** A picture with a message (a UPI "scan to pay" code for WhatsApp). */
+    @JavascriptInterface
+    fun shareImageText(id: String, fileName: String, base64: String, text: String) {
+        try {
+            val dir = File(activity.cacheDir, "exports").apply { mkdirs() }
+            val file = File(dir, fileName.replace(Regex("[^A-Za-z0-9._ -]"), "_"))
+            file.writeBytes(android.util.Base64.decode(base64, android.util.Base64.DEFAULT))
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            activity.runOnUiThread {
+                try {
+                    activity.startActivity(Intent.createChooser(send, "Ask to pay"))
+                    activity.resolve(id, JSONObject().put("ok", true))
+                } catch (e: Exception) {
+                    activity.resolve(id, JSONObject().put("ok", false).put("error", "No app to share with"))
+                }
+            }
+        } catch (e: Exception) {
+            activity.resolve(id, JSONObject().put("ok", false).put("error", e.message ?: "Could not share"))
+        }
+    }
+
+    @JavascriptInterface
+    fun printHtml(id: String, html: String, title: String) = activity.printHtml(id, html, title)
+
+    @JavascriptInterface
+    fun pickBackupFolder(id: String) {
+        activity.runOnUiThread {
+            activity.startFileRequest(id)
+            try {
+                activity.folderLauncher.launch(null)
+            } catch (e: Exception) {
+                activity.resolve(id, JSONObject().put("ok", false).put("error", "No folder picker on this phone"))
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun writeBackup(id: String, fileName: String, text: String) = activity.writeBackup(id, fileName, text)
+
     @JavascriptInterface
     fun savePhoto(id: String, base64: String): Boolean = Photos.save(activity, id, base64)
 
