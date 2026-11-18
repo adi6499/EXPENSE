@@ -1795,3 +1795,121 @@ html.ju .icon-grid button.on {
   background: var(--card);
   box-shadow: var(--shadow);
 }
+
+/* ---------- 21. Premium glass (as in Music Flow) ----------------------------------------------- */
+
+/* The top bar is invisible at the top of a page and turns to glass only once the page slides under it. */
+html.ju .navbar:not(.solid) {
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.ju .navbar {
+  transition: background-color 0.25s, box-shadow 0.25s;
+}
+
+/* Clear glass shows whatever passes underneath. So the words and icons ON a bar stay readable over
+   any text or picture, they carry a soft edge of the page's own colour (like subtitles on a film).
+   The glass itself stays clear. Frosted and solid glass don't need it. */
+html.ju[data-ju-glass='clear'] .tabbar,
+html.ju[data-ju-glass='clear'] .navbar {
+  --halo: var(--bg);
+}
+
+html.ju[data-ju-glass='clear'] .tabbar .tab span,
+html.ju[data-ju-glass='clear'] .navbar .nav-title,
+html.ju[data-ju-glass='clear'] .navbar .nav-btn {
+  text-shadow: 0 0 1px var(--halo), 0 0 5px var(--halo), 0 0 11px var(--halo), 0 0 18px var(--halo);
+}
+
+html.ju[data-ju-glass='clear'] .tabbar .tab .ph,
+html.ju[data-ju-glass='clear'] .tabbar .tab .ph-fill,
+html.ju[data-ju-glass='clear'] .navbar .icon-btn,
+html.ju[data-ju-glass='clear'] .navbar .nav-btn .ph {
+  filter: drop-shadow(0 0 1px var(--halo)) drop-shadow(0 0 4px var(--halo)) drop-shadow(0 0 9px var(--halo));
+}
+
+/* Tab names are quiet grey on a solid bar; on clear glass they need full ink */
+@media (max-width: 899px) {
+  html.ju[data-ju-glass='clear'] .tab {
+    color: var(--text);
+  }
+}
+
+/* iPhone, Safari, Firefox: the magnifier as a copy (js/magnify.js, "the copy lens").
+   A layer under the round bottom bar holds a live, enlarged copy of the page; the bar is then left
+   clear so the copy shows. Placed exactly as the bar is placed, so the two always move together. */
+.lens-under {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--safe-bottom) + var(--dock-gap));
+  height: var(--dock-h);
+  z-index: 9;
+  overflow: hidden;
+  border-radius: 999px;
+  -webkit-clip-path: inset(0 round 999px); /* some iPhones forget rounded corners on moving layers */
+  clip-path: inset(0 round 999px);
+  background: var(--bg);
+  pointer-events: none;
+  contain: layout paint style;
+}
+
+.lens-under[hidden] {
+  display: none;
+}
+
+.lens-page {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* The copy is a still picture of the page: nothing in it fades, slides or waits to appear */
+.lens-page,
+.lens-page * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* The wash of colour the bar's own glass would have given */
+.lens-under::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--glass);
+}
+
+/* Bending glass smears what is right at its rim: a little blur in a band round the edge gives the
+   copy the same soft rim, leaving the middle sharp */
+.lens-under::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, transparent 26%, transparent 74%, #000 100%), linear-gradient(to right, #000 0, transparent 28px, transparent calc(100% - 28px), #000 100%);
+  mask-image: linear-gradient(to bottom, #000 0, transparent 26%, transparent 74%, #000 100%), linear-gradient(to right, #000 0, transparent 28px, transparent calc(100% - 28px), #000 100%);
+}
+
+html.ju .tabbar[data-copy] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (min-width: 900px) {
+  .lens-under { display: none; }
+}
+
+/* Narrow phones: the plan's three figures never cut off */
+@media (max-width: 390px) {
+  .plan-top { gap: 6px; }
+  .plan-top > div { padding: 9px 8px; }
+  .plan-top b { font-size: 13px; letter-spacing: -0.02em; }
+}

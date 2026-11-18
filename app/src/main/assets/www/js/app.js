@@ -95,6 +95,7 @@ function goTo(tab) {
     dirty.delete(tab);
     screens[tab].render();
   }
+  refreshMagnifier(); // iPhone / Safari: the copy under the bar follows the tab on show
   syncHistory();
 }
 

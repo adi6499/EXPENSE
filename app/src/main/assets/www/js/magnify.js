@@ -1,7 +1,8 @@
 // The glass bars as a magnifying glass: what passes under the bottom bar (and the top bars) is
 // shown SHARP and BIGGER, and stretches towards the rounded rim, like looking through a thick lens.
-// Works where the browser can bend what is behind an element (Chrome, Edge, the Android app); an
-// iPhone keeps plain clear glass. Cosmetic only: any failure leaves the plain glass in place.
+// Works where the browser can bend what is behind an element (Chrome, Edge, the Android app); iPhone,
+// Safari and Firefox get the same look as an enlarged live copy of the page under the bottom bar
+// (see "the copy lens" below). Cosmetic only: any failure leaves the plain glass in place.
 //
 // How: one picture per bar size (a "displacement map": each pixel says where to look instead),
 // used through an SVG filter in backdrop-filter. Bars opt in with data-mag ("" = the round bottom
@@ -111,18 +112,29 @@ function isChromium() {
   return /Chrome\/\d+|Chromium\/\d+|EdgA?\/\d+|SamsungBrowser\/\d+/.test(navigator.userAgent || '') && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent || '');
 }
 
-const canBend = () => isChromium() && !(navigator.connection && navigator.connection.saveData);
+/** While testing: ?lens=copy in the address draws the iPhone version in any browser. */
+const forceCopy = /[?&]lens=copy\b/.test(location.search);
 
-/** Puts the magnifier on every bar marked data-mag (call after bars appear, change size, or the glass level changes). */
+const canGlass = () => {
+  try { return CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)'); } catch { return false; }
+};
+
+const canBend = () => !forceCopy && isChromium() && !(navigator.connection && navigator.connection.saveData);
+
+const clearLevel = () => {
+  const level = document.documentElement.dataset.juGlass; // set by the kit: solid / frosted / clear
+  return level !== 'solid' && level !== 'frosted';
+};
+
+/** Puts the magnifier on every bar marked data-mag (call after bars appear, change size, the tab changes, or the glass level changes). */
 export function refresh() {
   try {
     const bars = [...document.querySelectorAll('[data-mag]')];
-    const level = document.documentElement.dataset.juGlass; // set by the kit: solid / frosted / clear
-    const on = canBend() && level !== 'solid' && level !== 'frosted';
+    const bend = canBend() && clearLevel();
     for (const el of bars) {
       const w = Math.round(el.offsetWidth);
       const h = Math.round(el.offsetHeight);
-      if (!on || !w || !h) {
+      if (!bend || !w || !h) {
         el.style.webkitBackdropFilter = '';
         el.style.backdropFilter = '';
         continue;
@@ -132,8 +144,12 @@ export function refresh() {
       el.style.webkitBackdropFilter = f;
       el.style.backdropFilter = f;
     }
+    // Browsers that cannot bend what is behind the round bottom bar get an enlarged copy of the page instead
+    const pill = document.querySelector('.tabbar[data-mag=""]');
+    if (pill && !canBend() && canGlass() && clearLevel()) copyStart(pill);
+    else copyStop();
   } catch {
-    /* plain glass stays */
+    copyStop(); /* plain glass stays */
   }
 }
 
@@ -142,4 +158,125 @@ export function clear(el) {
   if (!el) return;
   el.style.webkitBackdropFilter = '';
   el.style.backdropFilter = '';
+  if (el.classList.contains('tabbar')) copyStop();
+}
+
+// ---------------------------------------------------------------- the copy lens (iPhone, Safari, Firefox)
+//
+// Those browsers cannot bend what is behind an element (WebKit bug 245510). So under the round bottom bar
+// sits a layer holding a live copy of the page on show, enlarged by the same amounts as the bending lens
+// (1.42 × 1.5, about the bar's centre) and moved in step with scrolling. The bar itself is then left
+// clear so the copy shows. The same way Music Flow does it.
+//   - position: on every scroll the copy is moved so the point of the page under the bar's centre is at
+//     the centre of the copy (no layout reads while scrolling);
+//   - content: when the page changes, the copy is made again — never more than a few times a second,
+//     never mid-scroll;
+//   - a page too long to copy cheaply keeps plain glass.
+
+const SX = LOOK.pill.mx;
+const SY = LOOK.pill.m;
+const TOO_LONG = 3600;
+const lens = { bar: null, under: null, page: null, scroller: null, watcher: null, timer: 0, lastBuilt: 0, lastScrolled: 0, at: { bx: 0, by: 0, bw: 0, bh: 0, px: 0, top: 0 } };
+
+const activeScroller = () => document.querySelector('.tab-page.active .scroller');
+
+function place() {
+  const { page, scroller, at } = lens;
+  if (!page || !scroller) return;
+  const pTop = at.top - scroller.scrollTop;
+  const tx = at.bw / 2 + SX * (at.px - (at.bx + at.bw / 2));
+  const ty = at.bh / 2 + SY * (pTop - (at.by + at.bh / 2));
+  page.style.transform = `matrix(${SX}, 0, 0, ${SY}, ${tx.toFixed(2)}, ${ty.toFixed(2)})`;
+}
+
+function measure() {
+  const { bar, under, page, scroller, at } = lens;
+  if (!bar || !under || !page || !scroller) return;
+  // offsetLeft/Top ignore the bar's own animations, which getBoundingClientRect would not
+  at.bx = bar.offsetLeft;
+  at.by = bar.offsetTop;
+  at.bw = bar.offsetWidth;
+  at.bh = bar.offsetHeight;
+  const home = under.parentElement.getBoundingClientRect();
+  const box = scroller.getBoundingClientRect();
+  const cs = getComputedStyle(scroller);
+  at.px = box.left - home.left + (parseFloat(cs.paddingLeft) || 0);
+  at.top = box.top - home.top + (parseFloat(cs.paddingTop) || 0);
+  page.style.width = `${scroller.clientWidth}px`;
+  place();
+}
+
+function build() {
+  const { under, page, scroller, bar } = lens;
+  if (!under || !page || !scroller) return;
+  lens.lastBuilt = performance.now();
+  if (scroller.getElementsByTagName('*').length > TOO_LONG) {
+    page.replaceChildren();
+    under.hidden = true;
+    delete bar.dataset.copy;
+    return;
+  }
+  under.hidden = false;
+  bar.dataset.copy = '1';
+  const holder = document.createElement('div');
+  for (const child of scroller.children) holder.appendChild(child.cloneNode(true));
+  holder.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+  holder.querySelectorAll('[autofocus]').forEach(n => n.removeAttribute('autofocus'));
+  holder.querySelectorAll('img').forEach(n => { n.decoding = 'sync'; n.loading = 'eager'; });
+  page.replaceChildren(...holder.childNodes);
+  measure();
+}
+
+/** The page changed: make the copy again soon, but never more than a few times a second, and never mid-scroll. */
+function rebuildSoon() {
+  if (lens.timer || !lens.under) return;
+  const run = () => {
+    lens.timer = 0;
+    if (!lens.under || document.hidden) return;
+    if (performance.now() - lens.lastScrolled < 150) { lens.timer = setTimeout(run, 170); return; }
+    try { build(); } catch { copyStop(); }
+  };
+  lens.timer = setTimeout(run, Math.max(90, 360 - (performance.now() - lens.lastBuilt)));
+}
+
+const onScroll = () => { lens.lastScrolled = performance.now(); place(); };
+
+/** Follows the tab on show (a different page scrolls under the bar). */
+function follow() {
+  const scroller = activeScroller();
+  if (!scroller || scroller === lens.scroller) return;
+  if (lens.scroller) lens.scroller.removeEventListener('scroll', onScroll);
+  if (lens.watcher) lens.watcher.disconnect();
+  lens.scroller = scroller;
+  scroller.addEventListener('scroll', onScroll, { passive: true });
+  lens.watcher = new MutationObserver(rebuildSoon);
+  lens.watcher.observe(scroller, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'src', 'hidden'] });
+  build();
+}
+
+function copyStart(bar) {
+  if (lens.under) { follow(); measure(); return; }
+  const home = bar.parentElement;
+  if (!home) return;
+  lens.bar = bar;
+  lens.under = document.createElement('div');
+  lens.under.className = 'lens-under';
+  lens.under.setAttribute('aria-hidden', 'true');
+  lens.under.setAttribute('inert', '');
+  lens.page = document.createElement('div');
+  lens.page.className = 'lens-page';
+  lens.under.appendChild(lens.page);
+  home.insertBefore(lens.under, bar); // just below the bar it belongs to
+  window.addEventListener('resize', measure, { passive: true });
+  try { follow(); } catch { copyStop(); }
+}
+
+function copyStop() {
+  if (lens.timer) { clearTimeout(lens.timer); lens.timer = 0; }
+  if (lens.watcher) lens.watcher.disconnect();
+  if (lens.scroller) lens.scroller.removeEventListener('scroll', onScroll);
+  window.removeEventListener('resize', measure);
+  if (lens.under) lens.under.remove();
+  if (lens.bar) delete lens.bar.dataset.copy;
+  Object.assign(lens, { bar: null, under: null, page: null, scroller: null, watcher: null });
 }
